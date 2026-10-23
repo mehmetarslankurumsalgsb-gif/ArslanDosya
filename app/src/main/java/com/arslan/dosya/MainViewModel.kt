@@ -19,10 +19,13 @@ import java.io.File
 import java.text.Collator
 import java.util.Locale
 
-enum class Section(val label: String, val kind: FileKind?) {
+enum class Section(val label: String, val kind: FileKind?, val fav: Boolean = false, val recent: Boolean = false) {
     ALL("Tümü", null),
+    RECENT("Son açılanlar", null, recent = true),
+    FAV("Favoriler", null, fav = true),
     PDF("PDF", FileKind.PDF),
     EXCEL("Excel", FileKind.EXCEL),
+    WORD("Word", FileKind.WORD),
     SLIDES("Sunum", FileKind.SLIDES),
 }
 
@@ -53,11 +56,64 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var scrollTop by mutableIntStateOf(0)
         private set
 
+    /** Favori dosyaların yolları (kalıcı) */
+    var favorites by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    /** Son açılan dosyaların yolları (en yeni başta) */
+    var recent by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    fun loadRecent() {
+        recent = Recent.list(getApplication<Application>())
+    }
+
+    /** Kopya dosya grupları (null = henüz aranmadı) */
+    var duplicates by mutableStateOf<List<Duplicates.Group>?>(null)
+        private set
+    var dupLoading by mutableStateOf(false)
+        private set
+
+    fun findDuplicates() {
+        if (dupLoading) return
+        dupLoading = true
+        viewModelScope.launch {
+            val hidden = pending.map { it.path }.toSet()
+            val src = all.filterNot { it.path in hidden }
+            duplicates = withContext(Dispatchers.IO) { Duplicates.find(src) }
+            dupLoading = false
+        }
+    }
+
+    fun closeDuplicates() {
+        duplicates = null
+    }
+
     private var pending: List<DocFile> = emptyList()
     private var again = false
     private var debounce: Job? = null
     private val prefs = app.getSharedPreferences("arslan", Context.MODE_PRIVATE)
     private val tr: Locale = Locale.forLanguageTag("tr")
+
+    init {
+        favorites = prefs.getStringSet("favoriler", emptySet())?.toSet() ?: emptySet()
+        recent = Recent.list(app)
+    }
+
+    private fun saveFavorites(set: Set<String>) {
+        favorites = set
+        prefs.edit().putStringSet("favoriler", HashSet(set)).apply()
+    }
+
+    fun isFavorite(d: DocFile): Boolean = d.path in favorites
+
+    /** Hepsi favoriyse çıkarır, değilse hepsini ekler. Eklendiyse true döner. */
+    fun toggleFavorites(list: List<DocFile>): Boolean {
+        val paths = list.map { it.path }
+        val allFav = paths.isNotEmpty() && paths.all { it in favorites }
+        saveFavorites(if (allFav) favorites - paths.toSet() else favorites + paths)
+        return !allFav
+    }
 
     // ---- Uygulama öne / arkaya geçince ----
 
@@ -65,6 +121,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val last = prefs.getLong("sonGorulme", 0L)
         if (last == 0L) prefs.edit().putLong("sonGorulme", System.currentTimeMillis()).apply()
         newSince = last
+        loadRecent()
         refresh()
     }
 
@@ -172,6 +229,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val list = pending
         if (list.isEmpty()) return
         pending = emptyList()
+        val gonePaths = list.map { it.path }.toSet()
+        if (favorites.any { it in gonePaths }) saveFavorites(favorites - gonePaths)
+        if (recent.any { it in gonePaths }) { Recent.remove(getApplication<Application>(), gonePaths); loadRecent() }
+        duplicates = duplicates?.map { g -> Duplicates.Group(g.files.filterNot { it.path in gonePaths }) }?.filter { it.files.size > 1 }
         val ctx = getApplication<Application>()
         Thread { FileActions.delete(ctx, list.map { it.path }) }.start()
     }
@@ -204,6 +265,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MediaScannerConnection.scanFile(getApplication<Application>(), arrayOf(src.absolutePath, dst.absolutePath), null, null)
         all = all.map { if (it.path == d.path) it.copy(path = dst.absolutePath, name = newName) else it }
         if (d.path in selected) selected = selected - d.path + dst.absolutePath
+        if (d.path in favorites) saveFavorites(favorites - d.path + dst.absolutePath)
+        if (d.path in recent) { Recent.replace(getApplication<Application>(), d.path, dst.absolutePath); loadRecent() }
         return null
     }
 }

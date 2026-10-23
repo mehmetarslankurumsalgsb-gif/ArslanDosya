@@ -883,6 +883,8 @@ function readCsv(text) {
   return [sheet];
 }
 
+Find.rootSel = '#sheet';
+
 (function main() {
   var p;
   if (TYPE === 'csv') {

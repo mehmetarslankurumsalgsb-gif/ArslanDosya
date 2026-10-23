@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<script type="module">
+// PDF içindeki yazıları okur; Android'deki arama kutusu bunu kullanır (görünmez sayfa)
+import * as pdfjs from './lib/pdfjs/pdf.min.js';
+pdfjs.GlobalWorkerOptions.workerSrc = './lib/pdfjs/pdf.worker.min.js';
+
+const q = new URLSearchParams(location.search);
+const url = '/doc/' + encodeURIComponent(q.get('f') || 'dosya');
+let pagesText = null;   // her sayfanın yazısı
+let loading = null;
+
+function send(name, value) {
+  try { if (window.Arslan && Arslan[name]) Arslan[name](value); } catch (e) {}
+}
+
+function loadText() {
+  if (loading) return loading;
+  loading = (async () => {
+    const doc = await pdfjs.getDocument({ url, isEvalSupported: false }).promise;
+    const out = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const tc = await page.getTextContent();
+      let s = '';
+      for (const it of tc.items) { s += it.str; s += it.hasEOL ? '\n' : ' '; }
+      out.push(s.replace(/[ \t]+/g, ' '));
+      page.cleanup();
+    }
+    pagesText = out;
+    return out;
+  })();
+  return loading;
+}
+
+// Arama: [{page, snippet}] — her eşleşme için bir kayıt
+window.pdfSearch = async function (query) {
+  try {
+    const texts = await loadText();
+    const nq = (query || '').trim().toLocaleLowerCase('tr');
+    const res = [];
+    if (nq) {
+      texts.forEach((t, p) => {
+        const low = t.toLocaleLowerCase('tr');
+        let i = 0;
+        while ((i = low.indexOf(nq, i)) >= 0 && res.length < 500) {
+          const a = Math.max(0, i - 30), b = Math.min(t.length, i + nq.length + 40);
+          res.push({ page: p, snippet: (a > 0 ? '…' : '') + t.substring(a, b).replace(/\s+/g, ' ').trim() + (b < t.length ? '…' : '') });
+          i += nq.length;
+        }
+      });
+    }
+    const hasText = texts.some(t => t.trim().length > 0);
+    send('pdfResults', JSON.stringify({ results: res, hasText }));
+    return res.length;
+  } catch (e) {
+    send('pdfResults', JSON.stringify({ results: [], hasText: false, error: String(e) }));
+    return -1;
+  }
+};
+// Sayfa açılınca yazıları önceden okumaya başla
+loadText().catch(() => {});
+</script>
+</body>
+</html>

@@ -925,6 +925,17 @@ function start() {
     });
     layoutSlides();
 
+    Find.rootSel = '#slides';
+    Find.prepare = function () {
+      return Promise.all(slots.map(function (s, i) { return drawInto(s, i); })).then(function () {
+        // drawInto çizim sürerken boş döner; hepsi bitene kadar bekle
+        return new Promise(function (ok) {
+          (function wait() {
+            if (slots.every(function (s) { return s.dataset.state === 'done'; })) ok(); else setTimeout(wait, 50);
+          })();
+        });
+      });
+    };
     // İlk slayt hemen, diğerleri ekrana yaklaştıkça
     return drawInto(slots[0], 0).then(function () {
       Bridge.ready();

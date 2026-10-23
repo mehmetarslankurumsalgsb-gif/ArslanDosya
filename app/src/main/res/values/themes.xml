@@ -2,7 +2,8 @@
 <resources>
     <color name="ikon_arka">#1E3A8A</color>
     <style name="Theme.ArslanDosya" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#1E3A8A</item>
-        <item name="android:windowBackground">#F4F6FB</item>
+        <item name="android:statusBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">#FFFFFF</item>
     </style>
 </resources>

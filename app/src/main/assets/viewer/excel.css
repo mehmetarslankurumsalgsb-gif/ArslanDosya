@@ -22,3 +22,6 @@ table.xl th {
   background: #eef0f5; color: #5b6275; font-weight: 600; font-size: 12px;
   border: 1px solid #d5d9e3; padding: 0 2px; text-align: center; font-family: Roboto, Arial, sans-serif;
 }
+
+mark.f { background: #FFE082; color: inherit; }
+mark.f.cur { background: #FF9800; }

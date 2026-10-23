@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta id="vp" name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="common.css">
+  <style>
+    body { background: #E9ECF2; }
+    #page { background: #fff; margin: 8px; box-sizing: border-box; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+      color: #000; word-wrap: break-word; overflow-wrap: break-word; }
+    #page p, #page h1, #page h2, #page h3, #page h4, #page h5, #page h6 { font-weight: inherit; font-size: inherit; white-space: pre-wrap; }
+    #page .tab { display: inline-block; width: 48px; }
+    #page .pgbr { display: block; height: 0; border-top: 2px dashed #C9CFDB; margin: 24px -40px; }
+    #page img.inl { vertical-align: bottom; max-width: 100%; height: auto !important; }
+    #page img.anc { display: block; margin: 6px auto; max-width: 100%; height: auto !important; }
+    #page .imgph { display: inline-flex; align-items: center; justify-content: center; background: #F1F3F7;
+      border: 1px dashed #B8C0D0; color: #5B6275; font-size: 12px; max-width: 100%; }
+    #page table.wt { margin-bottom: 8px; max-width: none; }
+    #page table.wt td p { margin-bottom: 0 !important; }
+    #page .math { font-family: 'Cambria Math', serif; font-style: italic; }
+    mark.f { background: #FFE082; color: inherit; }
+    mark.f.cur { background: #FF9800; }
+  </style>
+</head>
+<body>
+  <div id="status"><div class="spin"></div><p>Belge açılıyor…</p></div>
+  <div id="page"></div>
+  <script src="lib/jszip.min.js"></script>
+  <script src="common.js"></script>
+  <script src="docx.js"></script>
+</body>
+</html>

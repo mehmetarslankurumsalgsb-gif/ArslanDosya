@@ -249,3 +249,74 @@ var Colors = {
     return Colors.rgbToHex(Colors.fromHsl(hsl));
   }
 };
+
+// =================== Belge içinde arama (Excel, Word, Sunum) ===================
+var Find = {
+  rootSel: 'body',
+  marks: [],
+  cur: -1,
+  // Sunum gibi parça parça çizilen sayfalar aramadan önce her şeyi hazırlar
+  prepare: function () { return Promise.resolve(); },
+  norm: function (s) { return s.toLocaleLowerCase('tr'); },
+  clear: function () {
+    Find.marks.forEach(function (m) {
+      var p = m.parentNode;
+      if (!p) return;
+      p.replaceChild(document.createTextNode(m.textContent), m);
+      p.normalize();
+    });
+    Find.marks = [];
+    Find.cur = -1;
+  },
+  report: function () {
+    try { if (window.Arslan && Arslan.found) Arslan.found(Find.marks.length, Find.cur + 1); } catch (e) {}
+    return Find.marks.length;
+  },
+  search: function (q) {
+    Find.clear();
+    q = (q || '').trim();
+    if (!q) return Promise.resolve(Find.report());
+    return Find.prepare().then(function () {
+      var root = document.querySelector(Find.rootSel) || document.body;
+      var nq = Find.norm(q);
+      var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: function (n) {
+          var p = n.parentNode;
+          if (!p || /^(SCRIPT|STYLE|MARK)$/.test(p.nodeName)) return NodeFilter.FILTER_REJECT;
+          return Find.norm(n.nodeValue).indexOf(nq) >= 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+        }
+      });
+      var nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      nodes.forEach(function (node) {
+        var text = node.nodeValue, low = Find.norm(text);
+        var frag = document.createDocumentFragment(), pos = 0, i;
+        while ((i = low.indexOf(nq, pos)) >= 0) {
+          if (i > pos) frag.appendChild(document.createTextNode(text.substring(pos, i)));
+          var m = document.createElement('mark');
+          m.className = 'f';
+          m.textContent = text.substring(i, i + q.length);
+          frag.appendChild(m);
+          Find.marks.push(m);
+          pos = i + q.length;
+        }
+        if (pos < text.length) frag.appendChild(document.createTextNode(text.substring(pos)));
+        node.parentNode.replaceChild(frag, node);
+      });
+      if (Find.marks.length) Find.go(0); else Find.report();
+      return Find.marks.length;
+    });
+  },
+  go: function (i) {
+    var n = Find.marks.length;
+    if (!n) return Find.report();
+    if (Find.cur >= 0 && Find.marks[Find.cur]) Find.marks[Find.cur].className = 'f';
+    Find.cur = ((i % n) + n) % n;
+    var m = Find.marks[Find.cur];
+    m.className = 'f cur';
+    m.scrollIntoView({ block: 'center', inline: 'center' });
+    return Find.report();
+  },
+  next: function () { return Find.go(Find.cur + 1); },
+  prev: function () { return Find.go(Find.cur - 1); }
+};

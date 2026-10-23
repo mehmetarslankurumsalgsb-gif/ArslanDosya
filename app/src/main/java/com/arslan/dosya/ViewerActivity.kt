@@ -16,7 +16,9 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.calculateZoom
@@ -28,6 +30,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
@@ -36,6 +41,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -82,6 +88,13 @@ class ViewerActivity : ComponentActivity() {
     }
 }
 
+/** Görüntüleyici ile arama kutusu arasındaki bağlantı */
+class SearchLink {
+    var run: (String) -> Unit = {}
+    var next: () -> Unit = {}
+    var prev: () -> Unit = {}
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
@@ -89,54 +102,123 @@ fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
     val file = remember(path) { File(path) }
     val shareApps = rememberShareApps()
     var menu by remember { mutableStateOf(false) }
+    val ext = remember(name) { FileKinds.ext(name) }
+    val canSearch = ext in setOf("pdf", "xlsx", "xlsm", "xls", "csv", "docx", "pptx")
+
+    // Arama durumu
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var total by remember { mutableIntStateOf(-1) }
+    var current by remember { mutableIntStateOf(0) }
+    val link = remember { SearchLink() }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+
+    LaunchedEffect(path) { Recent.add(ctx, path) }
+
+    // Yazdıkça ara (kısa beklemeyle)
+    LaunchedEffect(query, searching) {
+        if (!searching) return@LaunchedEffect
+        if (query.isBlank()) { total = -1; link.run(""); return@LaunchedEffect }
+        kotlinx.coroutines.delay(350)
+        link.run(query)
+    }
+
     val openExternal: () -> Unit = {
         if (!FileActions.openExternal(ctx, path, name)) {
             Toast.makeText(ctx, "Bu dosyayı açacak uygulama bulunamadı.", Toast.LENGTH_LONG).show()
         }
     }
+    fun closeSearch() {
+        searching = false
+        query = ""
+        total = -1
+        link.run("")
+    }
+    BackHandler(enabled = searching) { closeSearch() }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
-                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri")
-                    }
-                },
-                title = {
-                    Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 17.sp)
-                },
-                actions = {
-                    val doc = DocFile(path, name, file.length(), file.lastModified(), FileKinds.of(name), "")
-                    shareApps.forEach { (app, pkg) ->
-                        ShareBarButton(app) { ShareApps.send(ctx, pkg, listOf(doc)) }
-                    }
-                    Box {
-                        IconButton(onClick = { menu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Seçenekler")
+            Column {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                    navigationIcon = {
+                        IconButton(onClick = { if (searching) closeSearch() else onBack() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri")
                         }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Diğer paylaşım seçenekleri") },
-                                leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
-                                onClick = { menu = false; FileActions.share(ctx, listOf(doc)) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Başka uygulamada aç") },
-                                leadingIcon = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
-                                onClick = { menu = false; openExternal() }
-                            )
+                    },
+                    title = {
+                        if (searching) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) {
+                                    if (query.isEmpty()) Text("Belgede ara", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 17.sp)
+                                    androidx.compose.foundation.text.BasicTextField(
+                                        value = query,
+                                        onValueChange = { query = it },
+                                        singleLine = true,
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 17.sp, color = MaterialTheme.colorScheme.onSurface),
+                                        cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { link.next() }),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(focus)
+                                    )
+                                }
+                                if (total >= 0) {
+                                    Text(
+                                        if (total == 0) "Yok" else "$current/$total",
+                                        fontSize = 13.sp,
+                                        color = if (total == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp)
+                                    )
+                                }
+                            }
+                            LaunchedEffect(Unit) { focus.requestFocus() }
+                        } else {
+                            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    },
+                    actions = {
+                        if (searching) {
+                            IconButton(onClick = { link.prev() }, enabled = total > 0) {
+                                Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Önceki")
+                            }
+                            IconButton(onClick = { link.next() }, enabled = total > 0) {
+                                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Sonraki")
+                            }
+                        } else {
+                            val doc = DocFile(path, name, file.length(), file.lastModified(), FileKinds.of(name), "")
+                            if (canSearch) {
+                                IconButton(onClick = { searching = true }) {
+                                    Icon(Icons.Filled.Search, contentDescription = "Belgede ara")
+                                }
+                            }
+                            shareApps.forEach { (app, pkg) ->
+                                ShareBarButton(app, pkg) { ShareApps.send(ctx, pkg, listOf(doc)) }
+                            }
+                            Box {
+                                IconButton(onClick = { menu = true }) {
+                                    Icon(Icons.Filled.MoreVert, contentDescription = "Seçenekler")
+                                }
+                                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                    DropdownMenuItem(
+                                        text = { Text("Diğer paylaşım seçenekleri") },
+                                        leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                                        onClick = { menu = false; FileActions.share(ctx, listOf(doc)) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Başka uygulamada aç") },
+                                        leadingIcon = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
+                                        onClick = { menu = false; openExternal() }
+                                    )
+                                }
+                            }
                         }
                     }
-                }
-            )
+                )
+                HorizontalDivider(color = Color(0xFFE5E7EB))
+            }
         }
     ) { pad ->
         Box(
@@ -144,13 +226,15 @@ fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
                 .padding(pad)
                 .fillMaxSize()
         ) {
-            when (val ext = FileKinds.ext(name)) {
-                "pdf" -> PdfViewer(file, openExternal)
-                "xlsx", "xlsm", "xls", "csv" -> WebDocViewer(file, "excel.html", ext, openExternal)
-                "pptx" -> WebDocViewer(file, "pptx.html", ext, openExternal)
-                "ppt" -> MessageView(
-                    title = "Eski biçim sunum",
-                    text = "Bu sunum eski PowerPoint biçiminde (.ppt). ArslanDosya bunu içinde " +
+            val onFound: (Int, Int) -> Unit = { t, c -> total = t; current = c }
+            when (ext) {
+                "pdf" -> PdfViewer(file, openExternal, link, onFound, searching)
+                "xlsx", "xlsm", "xls", "csv" -> WebDocViewer(file, "excel.html", ext, openExternal, link, onFound)
+                "docx" -> WebDocViewer(file, "docx.html", ext, openExternal, link, onFound)
+                "pptx" -> WebDocViewer(file, "pptx.html", ext, openExternal, link, onFound)
+                "ppt", "doc" -> MessageView(
+                    title = "Eski biçim dosya",
+                    text = "Bu dosya eski Office biçiminde (.$ext). ArslanDosya bunu içinde " +
                         "gösteremiyor; başka bir uygulamada açabilirsiniz.",
                     onExternal = openExternal
                 )
@@ -202,6 +286,8 @@ class ViewerBridge(
     private val onSheets: (List<String>, Int) -> Unit,
     private val onNotice: (String) -> Unit,
     private val onExternal: () -> Unit,
+    private val onFound: (Int, Int) -> Unit = { _, _ -> },
+    private val onPdfResults: (String) -> Unit = {},
 ) {
     private val main = Handler(Looper.getMainLooper())
 
@@ -227,11 +313,24 @@ class ViewerBridge(
 
     @JavascriptInterface
     fun openExternal() { main.post { onExternal() } }
+
+    @JavascriptInterface
+    fun found(total: Int, current: Int) { main.post { onFound(total, current) } }
+
+    @JavascriptInterface
+    fun pdfResults(json: String?) { main.post { onPdfResults(json ?: "{}") } }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit) {
+fun WebDocViewer(
+    file: File,
+    page: String,
+    type: String,
+    onExternal: () -> Unit,
+    link: SearchLink? = null,
+    onFound: (Int, Int) -> Unit = { _, _ -> },
+) {
     var ready by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var sheets by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -316,7 +415,8 @@ fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit)
                                 onFailed = { error = it },
                                 onSheets = { names, active -> sheets = names; activeSheet = active },
                                 onNotice = { notice = it },
-                                onExternal = onExternal
+                                onExternal = onExternal,
+                                onFound = onFound
                             ),
                             "Arslan"
                         )
@@ -334,6 +434,10 @@ fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit)
                                 Uri.encode(file.name) + "&t=" + type
                         )
                         webView = this
+                        val wv = this
+                        link?.run = { q -> wv.evaluateJavascript("Find.search(" + org.json.JSONObject.quote(q) + ")", null) }
+                        link?.next = { wv.evaluateJavascript("Find.next()", null) }
+                        link?.prev = { wv.evaluateJavascript("Find.prev()", null) }
                     }
                 },
                 onRelease = { it.destroy() }
@@ -349,7 +453,11 @@ fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit)
                     CircularProgressIndicator()
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        if (page.startsWith("pptx")) "Sunum açılıyor…" else "Tablo hazırlanıyor…",
+                        when {
+                            page.startsWith("pptx") -> "Sunum açılıyor…"
+                            page.startsWith("docx") -> "Belge açılıyor…"
+                            else -> "Tablo hazırlanıyor…"
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -417,8 +525,53 @@ class PdfHolder(file: File) {
 }
 
 @Composable
-fun PdfViewer(file: File, onExternal: () -> Unit) {
+fun PdfViewer(
+    file: File,
+    onExternal: () -> Unit,
+    link: SearchLink? = null,
+    onFound: (Int, Int) -> Unit = { _, _ -> },
+    searching: Boolean = false,
+) {
     val holder = remember(file) { PdfHolder(file) }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var results by remember { mutableStateOf<List<Pair<Int, String>>>(emptyList()) }
+    var noText by remember { mutableStateOf(false) }
+    var cur by remember { mutableIntStateOf(0) }
+    var showList by remember { mutableStateOf(true) }
+    var engine by remember { mutableStateOf<WebView?>(null) }
+
+    fun goTo(i: Int) {
+        if (results.isEmpty()) return
+        cur = ((i % results.size) + results.size) % results.size
+        onFound(results.size, cur + 1)
+        scope.launch { listState.animateScrollToItem(results[cur].first) }
+    }
+    if (link != null) {
+        link.run = { q ->
+            if (q.isBlank()) { results = emptyList(); onFound(-1, 0) }
+            else { showList = true; engine?.evaluateJavascript("pdfSearch(" + org.json.JSONObject.quote(q) + ")", null) }
+        }
+        link.next = { showList = false; goTo(cur + 1) }
+        link.prev = { showList = false; goTo(cur - 1) }
+    }
+    // PDF'in yazılarını okuyan görünmez sayfa (PDF.js)
+    if (searching) {
+        PdfSearchEngine(file, onReady = { engine = it }) { json ->
+            try {
+                val o = org.json.JSONObject(json)
+                val arr = o.optJSONArray("results") ?: org.json.JSONArray()
+                results = List(arr.length()) { arr.getJSONObject(it).let { r -> r.optInt("page") to r.optString("snippet") } }
+                noText = !o.optBoolean("hasText", true)
+                cur = 0
+                onFound(results.size, if (results.isEmpty()) 0 else 1)
+                if (results.isNotEmpty()) scope.launch { listState.animateScrollToItem(results[0].first) }
+            } catch (_: Exception) {
+                results = emptyList()
+                onFound(0, 0)
+            }
+        }
+    }
     DisposableEffect(holder) { onDispose { holder.close() } }
 
     val err = holder.error
@@ -458,6 +611,7 @@ fun PdfViewer(file: File, onExternal: () -> Unit) {
                 .horizontalScroll(hScroll)
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .width(baseWidth * scale)
                     .fillMaxHeight(),
@@ -469,7 +623,86 @@ fun PdfViewer(file: File, onExternal: () -> Unit) {
                 }
             }
         }
+        if (searching && noText) {
+            Text(
+                "Bu PDF taranmış bir resim; içinde aranabilir yazı yok.",
+                fontSize = 13.sp,
+                color = Color(0xFF7A4A00),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFF3CD))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            )
+        } else if (searching && showList && results.isNotEmpty()) {
+            Surface(
+                shadowElevation = 6.dp,
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 260.dp)
+            ) {
+                LazyColumn {
+                    items(results.size) { i ->
+                        val r = results[i]
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { showList = false; goTo(i) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Sayfa ${r.first + 1}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.width(64.dp)
+                            )
+                            Text(r.second, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        HorizontalDivider(color = Color(0xFFF0F1F3))
+                    }
+                }
+            }
+        }
     }
+}
+
+/** Görünmez WebView: PDF içindeki yazıları PDF.js ile okur */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun PdfSearchEngine(file: File, onReady: (WebView) -> Unit, onResults: (String) -> Unit) {
+    AndroidView(
+        modifier = Modifier.size(1.dp),
+        factory = { c ->
+            val loader = WebViewAssetLoader.Builder()
+                .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(c))
+                .addPathHandler("/doc/", WebViewAssetLoader.PathHandler { _ ->
+                    try {
+                        WebResourceResponse("application/pdf", null, FileInputStream(file))
+                    } catch (_: Exception) {
+                        null
+                    }
+                })
+                .build()
+            WebView(c).apply {
+                settings.javaScriptEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                addJavascriptInterface(
+                    ViewerBridge({}, {}, { _, _ -> }, {}, {}, onPdfResults = onResults),
+                    "Arslan"
+                )
+                webViewClient = object : WebViewClient() {
+                    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                        loader.shouldInterceptRequest(request.url)
+                }
+                loadUrl("https://appassets.androidplatform.net/assets/viewer/pdfsearch.html?f=" + Uri.encode(file.name))
+                onReady(this)
+            }
+        },
+        onRelease = { it.destroy() }
+    )
 }
 
 @Composable

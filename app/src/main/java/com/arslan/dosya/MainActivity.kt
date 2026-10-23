@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ShareApps.reset()
+        vm.loadRecent()
         checkPermission()
     }
 
