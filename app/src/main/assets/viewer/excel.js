@@ -258,6 +258,7 @@ function render(idx) {
   if (s.truncated) {
     h.push('<div id="notice">Büyük tablo: ilk ' + MAX_R + ' satır ve ' + MAX_C + ' sütun gösteriliyor.</div>');
   }
+  h.push('<div id="zw">');
   var total = 46;
   s.cols.forEach(function (c) { if (!c.hidden) total += c.w; });
   h.push('<table class="xl" style="width:' + total + 'px"><colgroup><col style="width:46px">');
@@ -277,11 +278,126 @@ function render(idx) {
     });
     h.push('</tr>');
   });
-  h.push('</tbody></table>');
+  h.push('</tbody></table></div>');
   host.innerHTML = h.join('');
+  fitToScreen();
+}
+
+// ---------- Yakınlaştırma: ekrana sığdır, iki parmak, çift dokunma ----------
+var Z = 1, FIT = 1, MAXZ = 4;
+
+function zw() { return document.getElementById('zw'); }
+
+function measure() {
+  var el = zw();
+  if (!el) return 1;
+  el.style.zoom = 1;
+  var w = el.offsetWidth || 1;
+  var host = document.getElementById('sheet');
+  return Math.min(1, (host.clientWidth - 2) / w);
+}
+
+function applyZoom(nz, cx, cy) {
+  var el = zw();
+  if (!el) return;
+  var host = document.getElementById('sheet');
+  nz = Math.max(Math.min(FIT, 1), Math.min(MAXZ, nz));
+  var ox = (host.scrollLeft + cx) / Z, oy = (host.scrollTop + cy) / Z;
+  Z = nz;
+  el.style.zoom = Z;
+  host.scrollLeft = ox * Z - cx;
+  host.scrollTop = oy * Z - cy;
+}
+
+var hintTimer = null;
+function hint() {
+  var e = document.getElementById('zoomhint');
+  e.textContent = '%' + Math.round(Z * 100);
+  e.className = 'on';
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(function () { e.className = ''; }, 700);
+}
+
+function fitToScreen() {
+  FIT = measure();
+  Z = FIT;
+  if (zw()) zw().style.zoom = Z;
+  var host = document.getElementById('sheet');
   host.scrollTop = 0;
   host.scrollLeft = 0;
 }
+
+(function zoomGestures() {
+  var host = document.getElementById('sheet');
+  var pinch = null, tap = null, lastTap = null, raf = 0, pendingZ = null;
+
+  function dist(t) {
+    var dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function local(x, y) {
+    var r = host.getBoundingClientRect();
+    return { x: x - r.left, y: y - r.top };
+  }
+
+  host.addEventListener('touchstart', function (e) {
+    if (e.touches.length === 2) {
+      var m = local((e.touches[0].clientX + e.touches[1].clientX) / 2, (e.touches[0].clientY + e.touches[1].clientY) / 2);
+      pinch = { d: dist(e.touches), z: Z, m: m };
+      tap = null;
+    } else if (e.touches.length === 1) {
+      tap = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(), moved: false };
+    }
+  }, { passive: true });
+
+  host.addEventListener('touchmove', function (e) {
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault();
+      pinch.m = local((e.touches[0].clientX + e.touches[1].clientX) / 2, (e.touches[0].clientY + e.touches[1].clientY) / 2);
+      pendingZ = pinch.z * dist(e.touches) / pinch.d;
+      if (!raf) {
+        raf = requestAnimationFrame(function () {
+          raf = 0;
+          if (pendingZ !== null && pinch) { applyZoom(pendingZ, pinch.m.x, pinch.m.y); hint(); }
+        });
+      }
+    } else if (tap && e.touches.length === 1) {
+      if (Math.abs(e.touches[0].clientX - tap.x) > 12 || Math.abs(e.touches[0].clientY - tap.y) > 12) tap.moved = true;
+    }
+  }, { passive: false });
+
+  host.addEventListener('touchend', function (e) {
+    if (e.touches.length < 2) pinch = null;
+    if (e.touches.length === 0 && tap && !tap.moved && Date.now() - tap.t < 250) {
+      var now = Date.now();
+      if (lastTap && now - lastTap.t < 320 && Math.abs(tap.x - lastTap.x) < 40 && Math.abs(tap.y - lastTap.y) < 40) {
+        e.preventDefault();
+        var p = local(tap.x, tap.y);
+        // Uzaktaysa yaklaş, yakındaysa ekrana sığdır
+        if (Z > FIT * 1.15) applyZoom(FIT, p.x, p.y);
+        else applyZoom(Math.max(1, FIT * 2.5), p.x, p.y);
+        hint();
+        lastTap = null;
+      } else {
+        lastTap = { x: tap.x, y: tap.y, t: now };
+      }
+    }
+    tap = null;
+  }, { passive: false });
+
+  // Telefon yan çevrilince yeniden sığdır
+  var rt = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () {
+      var wasFit = Z <= FIT * 1.02;
+      var oldZ = Z;
+      FIT = measure();
+      Z = wasFit ? FIT : Math.max(FIT, oldZ);
+      if (zw()) zw().style.zoom = Z;
+    }, 150);
+  });
+})();
 
 function show(sheets) {
   SHEETS = sheets;

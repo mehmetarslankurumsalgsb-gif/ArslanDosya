@@ -2,13 +2,13 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.5, maximum-scale=5, user-scalable=yes">
-  <link rel="stylesheet" href="lib/pptxjs/css/pptxjs.css">
-  <link rel="stylesheet" href="lib/pptxjs/css/nv.d3.min.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes">
   <link rel="stylesheet" href="common.css">
   <style>
     body { background: #5d6270; }
-    #wrap { padding: 10px 0 24px; overflow-x: hidden; }
+    #fast { padding: 8px 0 24px; }
+    #fast > * { margin-left: auto !important; margin-right: auto !important; }
+    #wrap { padding: 10px 0 24px; overflow-x: hidden; display: none; }
     #result { margin: 0 auto; }
     #result .slide {
       margin: 0 auto 16px !important;
@@ -24,72 +24,98 @@
 </head>
 <body>
   <div id="status"><div class="spin"></div><p>Slaytlar hazırlanıyor…</p></div>
+  <div id="fast"></div>
   <div id="wrap"><div id="result"></div></div>
   <div id="count"></div>
   <script src="common.js"></script>
   <script>
-    var L = 'lib/pptxjs/js/';
-    loadScripts([
-      L + 'jquery-1.11.3.min.js',
-      L + 'jszip.min.js',
-      L + 'filereader.js',
-      L + 'd3.min.js',
-      L + 'nv.d3.min.js',
-      L + 'dingbat.js',
-      L + 'pptxjs.js',
-      L + 'divs2slides.js'
-    ], start);
+    var shown = false;
 
-    function start() {
-      if (!window.jQuery || !jQuery.fn || !jQuery.fn.pptxToHtml) {
-        fail('Sunum görüntüleyici yüklenemedi.');
-        return;
+    function showNow(n) {
+      if (shown) return;
+      shown = true;
+      hideStatus();
+      if (n) {
+        var c = document.getElementById('count');
+        c.textContent = n + ' slayt';
+        c.style.display = 'block';
       }
-      try {
-        jQuery('#result').pptxToHtml({
-          pptxFileUrl: docUrl(),
-          fileInputId: '',
-          slideMode: false,
-          keyBoardShortCut: false,
-          mediaProcess: true,
-          slidesScale: ''
-        });
-      } catch (e) {
-        fail('Sunum açılamadı.');
-        return;
-      }
-      watch();
     }
 
-    function fit() {
+    // ---------- 1) Hızlı görüntüleyici: pptx-preview ----------
+    function fastViewer(buf) {
+      var host = document.getElementById('fast');
+      var w = Math.max(280, window.innerWidth - 12);
+
+      // İlk slayt ekrana gelir gelmez bekleme ekranını kaldır
+      var mo = new MutationObserver(function () {
+        if (host.querySelector('svg, img, canvas, p, span')) { mo.disconnect(); showNow(0); }
+      });
+      mo.observe(host, { childList: true, subtree: true });
+
+      var viewer = PptxPreview.init(host, { width: w, height: Math.round(w * 9 / 16), mode: 'list' });
+      return Promise.resolve(viewer.preview(buf)).then(function () {
+        mo.disconnect();
+        if (!host.children.length) throw new Error('boş');
+        showNow(0);
+      });
+    }
+
+    // ---------- 2) Yedek görüntüleyici: PPTXjs ----------
+    function oldViewer() {
+      document.getElementById('fast').style.display = 'none';
+      document.getElementById('wrap').style.display = 'block';
+      var L = 'lib/pptxjs/js/';
+      loadScripts([
+        L + 'jquery-1.11.3.min.js', L + 'jszip.min.js', L + 'filereader.js',
+        L + 'd3.min.js', L + 'nv.d3.min.js', L + 'dingbat.js', L + 'pptxjs.js', L + 'divs2slides.js'
+      ], function () {
+        if (!window.jQuery || !jQuery.fn || !jQuery.fn.pptxToHtml) { fail('Sunum görüntüleyici yüklenemedi.'); return; }
+        var css = ['lib/pptxjs/css/pptxjs.css', 'lib/pptxjs/css/nv.d3.min.css'];
+        css.forEach(function (h) {
+          var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = h; document.head.appendChild(l);
+        });
+        try {
+          jQuery('#result').pptxToHtml({
+            pptxFileUrl: docUrl(), fileInputId: '', slideMode: false,
+            keyBoardShortCut: false, mediaProcess: true, slidesScale: ''
+          });
+        } catch (e) { fail('Sunum açılamadı.'); return; }
+        var waited = 0;
+        var iv = setInterval(function () {
+          waited += 300;
+          var n = document.querySelectorAll('#result .slide').length;
+          if (n > 0) { fitOld(); showNow(0); }
+          if ((n > 0 && waited > 3000) || waited > 90000) {
+            clearInterval(iv);
+            fitOld();
+            if (n > 0) showNow(n); else fail('Sunum açılamadı. Dosya bozuk olabilir.');
+          }
+        }, 300);
+        window.addEventListener('resize', fitOld);
+      });
+    }
+
+    function fitOld() {
       var s = document.querySelector('#result .slide');
       if (!s) return;
-      var w = s.offsetWidth || 960;
-      var z = Math.min(1, (window.innerWidth - 12) / w);
+      var z = Math.min(1, (window.innerWidth - 12) / (s.offsetWidth || 960));
       document.getElementById('result').style.zoom = z;
     }
 
-    function watch() {
-      var last = -1, stable = 0, waited = 0;
-      var iv = setInterval(function () {
-        var n = document.querySelectorAll('#result .slide').length;
-        waited += 400;
-        if (n > 0 && n === last) stable++; else stable = 0;
-        last = n;
-        if (n > 0 && stable >= 3) {
-          clearInterval(iv);
-          fit();
-          hideStatus();
-          var c = document.getElementById('count');
-          c.textContent = n + ' slayt';
-          c.style.display = 'block';
-        } else if (waited > 90000) {
-          clearInterval(iv);
-          if (n > 0) { fit(); hideStatus(); } else fail('Sunum açılamadı. Dosya bozuk olabilir.');
-        }
-      }, 400);
-      window.addEventListener('resize', fit);
-    }
+    // ---------- Başlat ----------
+    loadScripts(['lib/pptx-preview.js'], function () {
+      if (!window.PptxPreview || !PptxPreview.init) { oldViewer(); return; }
+      fetch(docUrl())
+        .then(function (r) { if (!r.ok) throw new Error('okunamadı'); return r.arrayBuffer(); })
+        .then(fastViewer)
+        .catch(function () {
+          if (!shown) {
+            document.getElementById('fast').innerHTML = '';
+            oldViewer();
+          }
+        });
+    });
   </script>
 </body>
 </html>

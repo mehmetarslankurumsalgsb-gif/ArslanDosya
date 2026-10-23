@@ -23,7 +23,17 @@ body {
 @keyframes d { to { transform: rotate(360deg); } }
 
 /* ---------- Excel ---------- */
-#sheet { overflow: auto; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #fff; }
+#sheet {
+  overflow: auto; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #fff;
+  touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch;
+}
+#zw { display: inline-block; transform-origin: 0 0; }
+#zoomhint {
+  position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 30;
+  background: rgba(30, 58, 138, 0.9); color: #fff; font-size: 13px; font-weight: 600;
+  padding: 6px 12px; border-radius: 14px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
+}
+#zoomhint.on { opacity: 1; }
 body.has-tabs #sheet { bottom: 46px; }
 #notice {
   background: #fff3cd; color: #7a4a00; font-size: 12px; padding: 6px 10px;

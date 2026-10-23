@@ -7,6 +7,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.FileObserver
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import android.provider.OpenableColumns
 import android.provider.Settings
 import android.widget.Toast
@@ -32,10 +36,68 @@ class MainActivity : ComponentActivity() {
             checkPermission()
         }
 
+    // Uygulama öne/arkaya geçince (dosya görüntüleyici açılınca değil)
+    private val appLifecycle = object : DefaultLifecycleObserver {
+        override fun onStart(owner: LifecycleOwner) = vm.onForeground()
+        override fun onStop(owner: LifecycleOwner) = vm.onBackground()
+    }
+
+    // Uygulama açıkken klasörlere yeni dosya gelirse listeyi yeniler
+    private val observers = mutableListOf<FileObserver>()
+
+    @Suppress("DEPRECATION")
+    private fun startWatching() {
+        stopWatching()
+        if (!Perm.has(this)) return
+        val root = Environment.getExternalStorageDirectory()
+        listOf(
+            "Download",
+            "Download/ArslanDosya",
+            "Download/Telegram",
+            "Documents",
+            "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Documents",
+            "Android/media/com.whatsapp.w4b/WhatsApp Business/Media/WhatsApp Business Documents",
+            "WhatsApp/Media/WhatsApp Documents",
+            "Telegram/Telegram Documents",
+        ).map { File(root, it) }.filter { it.isDirectory }.forEach { dir ->
+            val mask = FileObserver.CLOSE_WRITE or FileObserver.MOVED_TO or
+                FileObserver.MOVED_FROM or FileObserver.DELETE
+            val o = object : FileObserver(dir.absolutePath, mask) {
+                override fun onEvent(event: Int, path: String?) {
+                    if (path != null && FileKinds.of(path) != FileKind.OTHER) {
+                        runOnUiThread { vm.scheduleRefresh() }
+                    }
+                }
+            }
+            o.startWatching()
+            observers.add(o)
+        }
+    }
+
+    private fun stopWatching() {
+        observers.forEach { it.stopWatching() }
+        observers.clear()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        startWatching()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        stopWatching()
+    }
+
+    override fun onDestroy() {
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycle)
+        super.onDestroy()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         granted.value = Perm.has(this)
-        if (granted.value && vm.all.isEmpty()) vm.refresh()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycle)
 
         setContent {
             ArslanTheme {
@@ -47,6 +109,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        ShareApps.reset()
         checkPermission()
     }
 
@@ -60,6 +123,7 @@ class MainActivity : ComponentActivity() {
         if (now && !granted.value) {
             granted.value = true
             vm.refresh()
+            startWatching()
         } else {
             granted.value = now
         }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -86,6 +87,8 @@ class ViewerActivity : ComponentActivity() {
 fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val file = remember(path) { File(path) }
+    val shareApps = rememberShareApps()
+    var menu by remember { mutableStateOf(false) }
     val openExternal: () -> Unit = {
         if (!FileActions.openExternal(ctx, path, name)) {
             Toast.makeText(ctx, "Bu dosyayı açacak uygulama bulunamadı.", Toast.LENGTH_LONG).show()
@@ -111,16 +114,26 @@ fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
                     Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 17.sp)
                 },
                 actions = {
-                    IconButton(onClick = {
-                        FileActions.share(
-                            ctx,
-                            listOf(DocFile(path, name, file.length(), file.lastModified(), FileKinds.of(name), ""))
-                        )
-                    }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Paylaş")
+                    val doc = DocFile(path, name, file.length(), file.lastModified(), FileKinds.of(name), "")
+                    shareApps.forEach { (app, pkg) ->
+                        ShareBarButton(app) { ShareApps.send(ctx, pkg, listOf(doc)) }
                     }
-                    IconButton(onClick = openExternal) {
-                        Icon(Icons.Filled.OpenInNew, contentDescription = "Başka uygulamada aç")
+                    Box {
+                        IconButton(onClick = { menu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Seçenekler")
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Diğer paylaşım seçenekleri") },
+                                leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                                onClick = { menu = false; FileActions.share(ctx, listOf(doc)) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Başka uygulamada aç") },
+                                leadingIcon = { Icon(Icons.Filled.OpenInNew, contentDescription = null) },
+                                onClick = { menu = false; openExternal() }
+                            )
+                        }
                     }
                 }
             )
@@ -133,8 +146,9 @@ fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
         ) {
             when (val ext = FileKinds.ext(name)) {
                 "pdf" -> PdfViewer(file, openExternal)
-                "xlsx", "xlsm", "xls", "csv" -> WebDocViewer(file, "excel.html", ext, openExternal)
-                "pptx" -> WebDocViewer(file, "pptx.html", ext, openExternal)
+                // Excel kendi yakınlaştırmasını yapar; sunumda tarayıcı yakınlaştırması kullanılır
+                "xlsx", "xlsm", "xls", "csv" -> WebDocViewer(file, "excel.html", ext, nativeZoom = false, openExternal)
+                "pptx" -> WebDocViewer(file, "pptx.html", ext, nativeZoom = true, openExternal)
                 "ppt" -> MessageView(
                     title = "Eski biçim sunum",
                     text = "Bu sunum eski PowerPoint biçiminde (.ppt). ArslanDosya bunu içinde " +
@@ -191,7 +205,7 @@ class ViewerBridge(private val onExternal: () -> Unit) {
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit) {
+fun WebDocViewer(file: File, page: String, type: String, nativeZoom: Boolean, onExternal: () -> Unit) {
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { c ->
@@ -211,10 +225,10 @@ fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit)
                 settings.domStorageEnabled = true
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
-                settings.builtInZoomControls = true
+                settings.builtInZoomControls = nativeZoom
                 settings.displayZoomControls = false
                 settings.useWideViewPort = true
-                settings.setSupportZoom(true)
+                settings.setSupportZoom(nativeZoom)
                 setBackgroundColor(android.graphics.Color.WHITE)
                 addJavascriptInterface(ViewerBridge(onExternal), "Arslan")
                 webViewClient = object : WebViewClient() {

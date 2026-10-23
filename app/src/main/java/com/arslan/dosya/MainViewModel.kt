@@ -1,14 +1,21 @@
 package com.arslan.dosya
 
 import android.app.Application
+import android.content.Context
+import android.media.MediaScannerConnection
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.Collator
 import java.util.Locale
 
@@ -30,29 +37,89 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var loading by mutableStateOf(false)
         private set
+    var userRefreshing by mutableStateOf(false)
+        private set
     var query by mutableStateOf("")
     var section by mutableStateOf(Section.ALL)
     var sort by mutableStateOf(SortBy.DATE)
     var selected by mutableStateOf<Set<String>>(emptySet())
         private set
 
+    /** Bu zamandan sonra değişen dosyalar "YENİ" etiketi alır. 0 = etiket yok. */
+    var newSince by mutableLongStateOf(0L)
+        private set
+
+    /** Her artışta liste en başa kayar. */
+    var scrollTop by mutableIntStateOf(0)
+        private set
+
+    private var pending: List<DocFile> = emptyList()
+    private var again = false
+    private var debounce: Job? = null
+    private val prefs = app.getSharedPreferences("arslan", Context.MODE_PRIVATE)
     private val tr: Locale = Locale.forLanguageTag("tr")
 
-    fun refresh() {
+    // ---- Uygulama öne / arkaya geçince ----
+
+    fun onForeground() {
+        val last = prefs.getLong("sonGorulme", 0L)
+        if (last == 0L) prefs.edit().putLong("sonGorulme", System.currentTimeMillis()).apply()
+        newSince = last
+        refresh()
+    }
+
+    fun onBackground() {
+        commitPending()
+        prefs.edit().putLong("sonGorulme", System.currentTimeMillis()).apply()
+    }
+
+    fun isNew(d: DocFile): Boolean = newSince > 0 && d.modified > newSince
+
+    // ---- Yenileme ----
+
+    fun refresh(user: Boolean = false) {
+        if (user) {
+            userRefreshing = true
+            scrollTop++
+        }
         if (loading) return
+        if (!Perm.has(getApplication<Application>())) {
+            userRefreshing = false
+            return
+        }
         loading = true
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
                     FileScanner.scan()
                 } catch (_: Exception) {
-                    emptyList()
+                    null
                 }
             }
-            all = result
-            val paths = result.map { it.path }.toSet()
-            selected = selected.filter { it in paths }.toSet()
+            if (result != null) {
+                val hidden = pending.map { it.path }.toSet()
+                all = result.filterNot { it.path in hidden }
+                val paths = all.map { it.path }.toSet()
+                selected = selected.filter { it in paths }.toSet()
+            }
             loading = false
+            if (userRefreshing) {
+                userRefreshing = false
+                scrollTop++
+            }
+            if (again) {
+                again = false
+                refresh()
+            }
+        }
+    }
+
+    /** Klasörlerde değişiklik olunca, kısa bir beklemeden sonra yeniler. */
+    fun scheduleRefresh() {
+        debounce?.cancel()
+        debounce = viewModelScope.launch {
+            delay(1500)
+            if (loading) again = true else refresh()
         }
     }
 
@@ -69,6 +136,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---- Seçim ----
+
     fun toggle(path: String) {
         selected = if (path in selected) selected - path else selected + path
     }
@@ -81,12 +150,60 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         selected = emptySet()
     }
 
-    suspend fun delete(list: List<DocFile>): Int {
-        val gone = withContext(Dispatchers.IO) {
-            FileActions.delete(getApplication<Application>(),list.map { it.path })
-        }.toSet()
-        all = all.filterNot { it.path in gone }
-        selected = selected - gone
-        return gone.size
+    // ---- Geri alınabilir silme ----
+
+    /** Dosyaları listeden hemen kaldırır; gerçek silme commitPending() ile olur. */
+    fun deleteWithUndo(list: List<DocFile>) {
+        commitPending()
+        val paths = list.map { it.path }.toSet()
+        pending = list
+        all = all.filterNot { it.path in paths }
+        selected = selected - paths
+    }
+
+    fun undo() {
+        val back = pending
+        pending = emptyList()
+        val have = all.map { it.path }.toSet()
+        all = all + back.filterNot { it.path in have }
+    }
+
+    fun commitPending() {
+        val list = pending
+        if (list.isEmpty()) return
+        pending = emptyList()
+        val ctx = getApplication<Application>()
+        Thread { FileActions.delete(ctx, list.map { it.path }) }.start()
+    }
+
+    override fun onCleared() {
+        commitPending()
+    }
+
+    // ---- Yeniden adlandırma ----
+
+    /** Hata varsa mesajını, başarılıysa null döndürür. */
+    suspend fun rename(d: DocFile, newBase: String): String? {
+        val base = newBase.trim()
+        if (base.isEmpty()) return "Dosya adı boş olamaz."
+        if (base.any { it in "/\\:*?\"<>|" }) return "Ad şu işaretleri içeremez: / \\ : * ? \" < > |"
+        val ext = FileKinds.ext(d.name)
+        val newName = if (ext.isEmpty()) base else "$base.$ext"
+        if (newName == d.name) return null
+        val src = File(d.path)
+        val dst = File(src.parentFile, newName)
+        if (dst.exists()) return "Bu klasörde aynı adla bir dosya zaten var."
+        val ok = withContext(Dispatchers.IO) {
+            try {
+                src.renameTo(dst)
+            } catch (_: Exception) {
+                false
+            }
+        }
+        if (!ok) return "Ad değiştirilemedi."
+        MediaScannerConnection.scanFile(getApplication<Application>(), arrayOf(src.absolutePath, dst.absolutePath), null, null)
+        all = all.map { if (it.path == d.path) it.copy(path = dst.absolutePath, name = newName) else it }
+        if (d.path in selected) selected = selected - d.path + dst.absolutePath
+        return null
     }
 }
