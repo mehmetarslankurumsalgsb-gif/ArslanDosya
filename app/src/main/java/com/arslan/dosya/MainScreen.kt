@@ -189,40 +189,47 @@ fun MainScreen(vm: MainViewModel) {
                     HorizontalDivider(color = Line)
                 }
             } else {
-                // Büyük başlık
-                Row(
+                Column(
                     Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(start = 20.dp, end = 12.dp, top = 14.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.Bottom
+                        .padding(start = 16.dp, end = 16.dp, top = 12.dp)
                 ) {
-                    Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text("Dosyalarım", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.3).sp)
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            if (vm.loading) "Taranıyor…" else "${all.size} belge",
+                            if (vm.loading) "taranıyor…" else "${all.size} belge",
                             fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 3.dp)
                         )
-                        Text("Dosyalarım", fontSize = 30.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
                     }
-                    RoundIconButton(Icons.Filled.Refresh, "Yenile") { vm.refresh(user = true) }
-                    Spacer(Modifier.width(8.dp))
-                    RoundIconButton(Icons.Filled.CleaningServices, "Kopya dosyaları bul") {
-                        showDuplicates = true
-                        vm.findDuplicates()
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Box {
-                        RoundIconButton(Icons.Filled.SwapVert, "Sırala") { sortMenu = true }
-                        DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                            SortBy.entries.forEach { s ->
-                                DropdownMenuItem(
-                                    text = { Text(s.label) },
-                                    onClick = { vm.sort = s; sortMenu = false },
-                                    trailingIcon = { if (vm.sort == s) Icon(Icons.Filled.Check, contentDescription = null) }
-                                )
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        LabeledButton(Icons.Filled.History, "Son açılan", section.recent) {
+                            vm.section = if (section.recent) Section.ALL else Section.RECENT
+                        }
+                        LabeledButton(Icons.Filled.Star, "Favoriler", section.fav, activeTint = MaterialTheme.colorScheme.secondary) {
+                            vm.section = if (section.fav) Section.ALL else Section.FAV
+                        }
+                        LabeledButton(Icons.Filled.CleaningServices, "Kopyalar", false) {
+                            showDuplicates = true
+                            vm.findDuplicates()
+                        }
+                        Box {
+                            LabeledButton(Icons.Filled.SwapVert, "Sırala", false) { sortMenu = true }
+                            DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                                SortBy.entries.forEach { s ->
+                                    DropdownMenuItem(
+                                        text = { Text(s.label) },
+                                        onClick = { vm.sort = s; sortMenu = false },
+                                        trailingIcon = { if (vm.sort == s) Icon(Icons.Filled.Check, contentDescription = null) }
+                                    )
+                                }
                             }
                         }
+                        LabeledButton(Icons.Filled.Refresh, "Yenile", false) { vm.refresh(user = true) }
                     }
                 }
             }
@@ -237,60 +244,59 @@ fun MainScreen(vm: MainViewModel) {
             SearchField(
                 value = vm.query,
                 onChange = { vm.query = it },
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 10.dp)
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp)
             )
 
-            // Altı çizili sekmeler
-            ScrollableTabRow(
-                selectedTabIndex = section.ordinal,
-                edgePadding = 12.dp,
+            // Tür sekmeleri: tek ekrana sığar, kaydırma yok
+            val tabs = listOf(Section.ALL, Section.PDF, Section.EXCEL, Section.WORD, Section.SLIDES)
+            val tabIndex = tabs.indexOf(section)
+            TabRow(
+                selectedTabIndex = if (tabIndex >= 0) tabIndex else 0,
                 containerColor = MaterialTheme.colorScheme.background,
                 contentColor = MaterialTheme.colorScheme.primary,
                 divider = { HorizontalDivider(color = Line) },
                 indicator = { positions ->
-                    if (section.ordinal < positions.size) {
+                    if (tabIndex >= 0 && tabIndex < positions.size) {
                         TabRowDefaults.PrimaryIndicator(
-                            modifier = with(TabRowDefaults) { Modifier.tabIndicatorOffset(positions[section.ordinal]) },
-                            width = 36.dp,
+                            modifier = with(TabRowDefaults) { Modifier.tabIndicatorOffset(positions[tabIndex]) },
+                            width = 32.dp,
                             height = 3.dp,
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
             ) {
-                Section.entries.forEach { s ->
-                    val count = when {
-                        s.recent -> {
-                            val paths = filtered.mapTo(HashSet()) { it.path }
-                            recent.count { it in paths }
-                        }
-                        s.fav -> filtered.count { it.path in favs }
-                        s.kind == null -> filtered.size
-                        else -> filtered.count { it.kind == s.kind }
-                    }
+                tabs.forEach { s ->
+                    val count = if (s.kind == null) filtered.size else filtered.count { it.kind == s.kind }
                     val on = section == s
                     Tab(
                         selected = on,
                         onClick = { vm.section = s },
                         selectedContentColor = MaterialTheme.colorScheme.primary,
                         unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        text = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (s.fav) {
-                                    Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(15.dp),
-                                        tint = if (on) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Spacer(Modifier.width(4.dp))
-                                }
-                                if (s.recent) {
-                                    Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                }
-                                Text(s.label, fontSize = 14.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
-                                Spacer(Modifier.width(5.dp))
-                                Text("$count", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    )
+                        modifier = Modifier.height(54.dp)
+                    ) {
+                        Text(s.label, fontSize = 13.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, maxLines = 1, softWrap = false)
+                        Text("$count", fontSize = 11.sp, maxLines = 1, softWrap = false,
+                            color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            // Son açılanlar / Favoriler seçiliyken bilgi şeridi
+            if (section.recent || section.fav) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(start = 16.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(if (section.fav) Icons.Filled.Star else Icons.Filled.History, contentDescription = null,
+                        tint = if (section.fav) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (section.fav) "Favoriler (${visible.size})" else "Son açılanlar (${visible.size})",
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { vm.section = Section.ALL }) { Text("Tümüne dön") }
                 }
             }
 
@@ -378,6 +384,39 @@ fun MainScreen(vm: MainViewModel) {
                     }
                 }
             }
+        )
+    }
+}
+
+/** Simge + altında küçük ad (üstteki buton şeridi) */
+@Composable
+fun LabeledButton(icon: ImageVector, label: String, active: Boolean, activeTint: Color = Color.Unspecified, onClick: () -> Unit) {
+    val tint = if (active) (if (activeTint != Color.Unspecified) activeTint else MaterialTheme.colorScheme.primary) else MaterialTheme.colorScheme.onSurface
+    Column(
+        Modifier
+            .width(64.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(21.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            label,
+            fontSize = 11.sp,
+            maxLines = 1,
+            softWrap = false,
+            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -503,11 +542,11 @@ fun FileRow(
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Row(
-            Modifier.padding(start = 20.dp, top = 14.dp, bottom = 14.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+            Modifier.padding(start = 16.dp, top = 12.dp, bottom = if (!selectionMode && shareApps.isNotEmpty()) 2.dp else 12.dp, end = 0.dp),
+            verticalAlignment = Alignment.Top
         ) {
-            KindBadge(d.kind, selected)
-            Spacer(Modifier.width(14.dp))
+            Box(Modifier.padding(top = 2.dp)) { KindBadge(d.kind, selected) }
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -545,17 +584,13 @@ fun FileRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (!selectionMode && shareApps.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    ShareLinks(shareApps, onShareTo)
-                }
             }
             if (!selectionMode) {
-                IconButton(onClick = onDelete) {
+                IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
                     Icon(Icons.Filled.DeleteOutline, contentDescription = "Sil", tint = Color(0xFF9CA3AF))
                 }
                 Box {
-                    IconButton(onClick = { menu = true }) {
+                    IconButton(onClick = { menu = true }, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Filled.MoreVert, contentDescription = "Seçenekler", tint = Color(0xFF6B7280))
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -601,25 +636,32 @@ fun FileRow(
                 }
             }
         }
-        HorizontalDivider(color = LineSoft, modifier = Modifier.padding(start = 78.dp))
+        if (!selectionMode && shareApps.isNotEmpty()) {
+            Box(Modifier.padding(start = 66.dp, end = 12.dp, bottom = 8.dp)) {
+                ShareLinks(shareApps, onShareTo)
+            }
+        }
+        HorizontalDivider(color = LineSoft, modifier = Modifier.padding(start = 72.dp))
     }
 }
 
 /** Sade metin bağlantıları: gerçek uygulama ikonu + ad */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ShareLinks(apps: List<Pair<ShareApp, String>>, onClick: (String) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         apps.forEach { (app, pkg) ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(50))
+                    .background(app.color.copy(alpha = 0.08f))
                     .clickable { onClick(pkg) }
-                    .padding(horizontal = 6.dp, vertical = 5.dp)
+                    .padding(start = 6.dp, end = 10.dp, top = 5.dp, bottom = 5.dp)
             ) {
-                AppIcon(app, pkg, 16.dp, app.color)
+                AppIcon(app, pkg, 18.dp, app.color)
                 Spacer(Modifier.width(5.dp))
-                Text(app.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = app.textColor)
+                Text(app.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = app.textColor, maxLines = 1, softWrap = false)
             }
         }
     }

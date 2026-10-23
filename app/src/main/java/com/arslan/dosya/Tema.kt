@@ -57,8 +57,18 @@ private val Koyu = darkColorScheme(
 
 @Composable
 fun ArslanTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) Koyu else Acik, content = content)
+    // Seçilen "Sade Beyaz" tasarım: telefon karanlık modda olsa da hep açık renk.
+    // Çok büyük yazı ayarlarında düzen bozulmasın diye yazı büyütme 1,15 ile sınırlı.
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, minOf(d.fontScale, 1.15f))
+    ) {
+        MaterialTheme(colorScheme = Acik, content = content)
+    }
 }
+
+@Suppress("unused")
+private val koyuYedek = Koyu
 
 fun kindColor(kind: FileKind): Color = when (kind) {
     FileKind.PDF -> Color(0xFFDC2626)
