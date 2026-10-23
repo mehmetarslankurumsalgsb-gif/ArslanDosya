@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ArslanDosya ikonu: lacivert zemin, sarı klasör, içinden çıkan belgeler ve "A" harfi -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Klasörün arka kısmı -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M30,36 L45,36 Q47,36 48.5,37.5 L52,41 L78,41 Q82,41 82,45 L82,74 Q82,78 78,78 L30,78 Q26,78 26,74 L26,40 Q26,36 30,36 Z" />
+
+    <!-- Arkadaki belge (kırmızı - PDF) -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M36,30 L58,30 L58,58 L36,58 Z" />
+
+    <!-- Öndeki belge (beyaz, köşesi kıvrık) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,26 L66,26 L74,34 L74,58 L44,58 Z" />
+    <path
+        android:fillColor="#CBD5E1"
+        android:pathData="M66,26 L74,34 L66,34 Z" />
+    <!-- Belge satırları -->
+    <path
+        android:fillColor="#22C55E"
+        android:pathData="M49,38 L69,38 L69,41 L49,41 Z M49,44 L69,44 L69,47 L49,47 Z" />
+
+    <!-- Klasörün ön kapağı -->
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M26,52 Q26,49 29,49 L79,49 Q82,49 82,52 L82,74 Q82,78 78,78 L30,78 Q26,78 26,74 Z" />
+
+    <!-- "A" harfi -->
+    <path
+        android:fillColor="#1E3A8A"
+        android:fillType="evenOdd"
+        android:pathData="M51,53 L57,53 L64,75 L59.2,75 L57.9,70.6 L50.1,70.6 L48.8,75 L44,75 Z M51.3,66.6 L56.7,66.6 L54,57.6 Z" />
+</vector>

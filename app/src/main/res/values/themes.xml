@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ikon_arka">#1E3A8A</color>
+    <style name="Theme.ArslanDosya" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#1E3A8A</item>
+        <item name="android:windowBackground">#F4F6FB</item>
+    </style>
+</resources>
