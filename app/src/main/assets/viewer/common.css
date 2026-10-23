@@ -4,6 +4,7 @@ body {
   background: #ffffff;
   color: #111;
   -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 #status {
   position: fixed; inset: 0; z-index: 50;
@@ -11,55 +12,10 @@ body {
   background: #f4f6fb; color: #5b6275; font-size: 15px; text-align: center; padding: 24px;
 }
 #status.err p { color: #333; font-size: 16px; max-width: 320px; line-height: 1.45; }
-#status button {
-  margin-top: 14px; border: 0; border-radius: 14px; padding: 13px 22px;
-  background: #1E3A8A; color: #fff; font-size: 15px; font-weight: 600;
-}
 .spin {
   width: 38px; height: 38px; border-radius: 50%;
   border: 4px solid #dde5ff; border-top-color: #1E3A8A;
   animation: d 0.9s linear infinite; margin-bottom: 14px;
 }
 @keyframes d { to { transform: rotate(360deg); } }
-
-/* ---------- Excel ---------- */
-#sheet {
-  overflow: auto; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #fff;
-  touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch;
-}
-#zw { display: inline-block; transform-origin: 0 0; }
-#zoomhint {
-  position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%); z-index: 30;
-  background: rgba(30, 58, 138, 0.9); color: #fff; font-size: 13px; font-weight: 600;
-  padding: 6px 12px; border-radius: 14px; opacity: 0; transition: opacity 0.25s; pointer-events: none;
-}
-#zoomhint.on { opacity: 1; }
-body.has-tabs #sheet { bottom: 46px; }
-#notice {
-  background: #fff3cd; color: #7a4a00; font-size: 12px; padding: 6px 10px;
-  position: sticky; left: 0; top: 0; z-index: 6;
-}
-table.xl { border-collapse: collapse; table-layout: fixed; font-size: 14px; }
-table.xl td {
-  border: 1px solid #e1e4ea; padding: 2px 5px; height: 20px;
-  white-space: nowrap; overflow: hidden; text-overflow: clip;
-  vertical-align: bottom; background-clip: padding-box;
-}
-table.xl th {
-  background: #eef0f5; color: #5b6275; font-weight: 600; font-size: 12px;
-  border: 1px solid #d5d9e3; padding: 2px 4px; text-align: center;
-}
-table.xl thead th { position: sticky; top: 0; z-index: 3; }
-table.xl tbody th { position: sticky; left: 0; z-index: 2; }
-table.xl thead th.corner { left: 0; z-index: 4; }
-#tabs {
-  position: fixed; left: 0; right: 0; bottom: 0; height: 46px;
-  display: flex; overflow-x: auto; background: #f4f6fb; border-top: 1px solid #d5d9e3;
-  -webkit-overflow-scrolling: touch;
-}
-#tabs button {
-  flex: 0 0 auto; border: 0; background: transparent; color: #5b6275;
-  padding: 0 16px; font-size: 14px; white-space: nowrap; border-bottom: 3px solid transparent;
-}
-#tabs button.on { color: #1E3A8A; font-weight: 700; border-bottom-color: #1E3A8A; background: #fff; }
 .empty { padding: 40px 20px; text-align: center; color: #5b6275; }

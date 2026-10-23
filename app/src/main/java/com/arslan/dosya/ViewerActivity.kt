@@ -146,9 +146,8 @@ fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
         ) {
             when (val ext = FileKinds.ext(name)) {
                 "pdf" -> PdfViewer(file, openExternal)
-                // Excel kendi yakınlaştırmasını yapar; sunumda tarayıcı yakınlaştırması kullanılır
-                "xlsx", "xlsm", "xls", "csv" -> WebDocViewer(file, "excel.html", ext, nativeZoom = false, openExternal)
-                "pptx" -> WebDocViewer(file, "pptx.html", ext, nativeZoom = true, openExternal)
+                "xlsx", "xlsm", "xls", "csv" -> WebDocViewer(file, "excel.html", ext, openExternal)
+                "pptx" -> WebDocViewer(file, "pptx.html", ext, openExternal)
                 "ppt" -> MessageView(
                     title = "Eski biçim sunum",
                     text = "Bu sunum eski PowerPoint biçiminde (.ppt). ArslanDosya bunu içinde " +
@@ -196,58 +195,167 @@ fun MessageView(title: String, text: String, onExternal: () -> Unit) {
 
 // =================== EXCEL ve POWERPOINT (web görüntüleyici) ===================
 
-class ViewerBridge(private val onExternal: () -> Unit) {
+/** Sayfadaki JavaScript ile Android arasındaki köprü */
+class ViewerBridge(
+    private val onReady: () -> Unit,
+    private val onFailed: (String) -> Unit,
+    private val onSheets: (List<String>, Int) -> Unit,
+    private val onNotice: (String) -> Unit,
+    private val onExternal: () -> Unit,
+) {
+    private val main = Handler(Looper.getMainLooper())
+
     @JavascriptInterface
-    fun openExternal() {
-        Handler(Looper.getMainLooper()).post { onExternal() }
+    fun ready() { main.post { onReady() } }
+
+    @JavascriptInterface
+    fun failed(msg: String?) { main.post { onFailed(msg ?: "Dosya açılamadı.") } }
+
+    @JavascriptInterface
+    fun sheets(json: String?, active: Int) {
+        val names = try {
+            val arr = org.json.JSONArray(json ?: "[]")
+            List(arr.length()) { arr.optString(it) }
+        } catch (_: Exception) {
+            emptyList()
+        }
+        main.post { onSheets(names, active) }
     }
+
+    @JavascriptInterface
+    fun notice(text: String?) { main.post { onNotice(text ?: "") } }
+
+    @JavascriptInterface
+    fun openExternal() { main.post { onExternal() } }
 }
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun WebDocViewer(file: File, page: String, type: String, nativeZoom: Boolean, onExternal: () -> Unit) {
-    AndroidView(
-        modifier = Modifier.fillMaxSize(),
-        factory = { c ->
-            val loader = WebViewAssetLoader.Builder()
-                .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(c))
-                .addPathHandler("/doc/", WebViewAssetLoader.PathHandler { _ ->
-                    try {
-                        WebResourceResponse(FileKinds.mime(file.name), null, FileInputStream(file))
-                    } catch (_: Exception) {
-                        null
-                    }
-                })
-                .build()
+fun WebDocViewer(file: File, page: String, type: String, onExternal: () -> Unit) {
+    var ready by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var sheets by remember { mutableStateOf<List<String>>(emptyList()) }
+    var activeSheet by remember { mutableIntStateOf(0) }
+    var notice by remember { mutableStateOf("") }
+    var webView by remember { mutableStateOf<WebView?>(null) }
 
-            WebView(c).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.builtInZoomControls = nativeZoom
-                settings.displayZoomControls = false
-                settings.useWideViewPort = true
-                settings.setSupportZoom(nativeZoom)
-                setBackgroundColor(android.graphics.Color.WHITE)
-                addJavascriptInterface(ViewerBridge(onExternal), "Arslan")
-                webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest
-                    ): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+    // Çok uzun sürerse kullanıcıyı bekletme
+    LaunchedEffect(file) {
+        kotlinx.coroutines.delay(90_000)
+        if (!ready && error == null) error = "Dosya açılamadı. Çok büyük ya da bozuk olabilir."
+    }
 
-                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                        request.url.host != "appassets.androidplatform.net"
+    val err = error
+    if (err != null) {
+        MessageView("Açılamadı", err, onExternal)
+        return
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        if (sheets.size > 1) {
+            ScrollableTabRow(
+                selectedTabIndex = activeSheet.coerceIn(0, sheets.size - 1),
+                edgePadding = 8.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.tertiary,
+            ) {
+                sheets.forEachIndexed { i, name ->
+                    Tab(
+                        selected = i == activeSheet,
+                        onClick = {
+                            activeSheet = i
+                            webView?.evaluateJavascript("showSheet($i)", null)
+                        },
+                        text = { Text(name, maxLines = 1) },
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-                loadUrl(
-                    "https://appassets.androidplatform.net/assets/viewer/$page?f=" +
-                        Uri.encode(file.name) + "&t=" + type
-                )
             }
-        },
-        onRelease = { it.destroy() }
-    )
+        }
+        if (notice.isNotEmpty()) {
+            Text(
+                notice,
+                style = MaterialTheme.typography.labelMedium,
+                color = Color(0xFF7A4A00),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFF3CD))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { c ->
+                    val loader = WebViewAssetLoader.Builder()
+                        .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(c))
+                        .addPathHandler("/doc/", WebViewAssetLoader.PathHandler { _ ->
+                            try {
+                                WebResourceResponse(FileKinds.mime(file.name), null, FileInputStream(file))
+                            } catch (_: Exception) {
+                                null
+                            }
+                        })
+                        .build()
+
+                    WebView(c).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        // Telefonun kendi iki parmak yakınlaştırması
+                        settings.setSupportZoom(true)
+                        settings.builtInZoomControls = true
+                        settings.displayZoomControls = false
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        setBackgroundColor(android.graphics.Color.WHITE)
+                        addJavascriptInterface(
+                            ViewerBridge(
+                                onReady = { ready = true },
+                                onFailed = { error = it },
+                                onSheets = { names, active -> sheets = names; activeSheet = active },
+                                onNotice = { notice = it },
+                                onExternal = onExternal
+                            ),
+                            "Arslan"
+                        )
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldInterceptRequest(
+                                view: WebView,
+                                request: WebResourceRequest
+                            ): WebResourceResponse? = loader.shouldInterceptRequest(request.url)
+
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                                request.url.host != "appassets.androidplatform.net"
+                        }
+                        loadUrl(
+                            "https://appassets.androidplatform.net/assets/viewer/$page?f=" +
+                                Uri.encode(file.name) + "&t=" + type
+                        )
+                        webView = this
+                    }
+                },
+                onRelease = { it.destroy() }
+            )
+            if (!ready) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        if (page.startsWith("pptx")) "Sunum açılıyor…" else "Tablo hazırlanıyor…",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
 }
 
 // =================== PDF ===================

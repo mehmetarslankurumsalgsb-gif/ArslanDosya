@@ -1,0 +1,24 @@
+body { background: #fff; }
+#sheet { display: inline-block; padding: 0 4px 12px 0; }
+#notice {
+  display: none; background: #fff3cd; color: #7a4a00; font-size: 12px; padding: 6px 10px;
+}
+#localtabs { display: flex; gap: 4px; padding: 6px; background: #eef0f5; overflow-x: auto; }
+#localtabs button { border: 0; padding: 6px 12px; border-radius: 8px; background: #fff; }
+
+table.xl {
+  border-collapse: collapse; table-layout: fixed;
+  font-family: Calibri, Carlito, Roboto, Arial, sans-serif; font-size: 14.7px; color: #000;
+}
+table.xl td {
+  padding: 0 3px; white-space: nowrap; overflow: hidden; text-overflow: clip;
+  vertical-align: bottom; line-height: 1.2; background-clip: padding-box;
+}
+table.xl.grid td { border: 1px solid #e2e2e2; }
+table.xl td.wrap { white-space: pre-wrap; word-break: break-word; }
+table.xl td.over { overflow: visible; position: relative; }
+table.xl td.over > span { position: relative; z-index: 1; }
+table.xl th {
+  background: #eef0f5; color: #5b6275; font-weight: 600; font-size: 12px;
+  border: 1px solid #d5d9e3; padding: 0 2px; text-align: center; font-family: Roboto, Arial, sans-serif;
+}

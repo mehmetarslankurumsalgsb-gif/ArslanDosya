@@ -2,120 +2,40 @@
 <html lang="tr">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=6, user-scalable=yes">
   <link rel="stylesheet" href="common.css">
   <style>
-    body { background: #5d6270; }
-    #fast { padding: 8px 0 24px; }
-    #fast > * { margin-left: auto !important; margin-right: auto !important; }
-    #wrap { padding: 10px 0 24px; overflow-x: hidden; display: none; }
-    #result { margin: 0 auto; }
-    #result .slide {
-      margin: 0 auto 16px !important;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-      border: 0 !important;
-    }
-    #count {
-      position: fixed; right: 10px; bottom: 10px; z-index: 20;
-      background: rgba(30, 58, 138, 0.9); color: #fff; font-size: 12px;
-      padding: 5px 10px; border-radius: 12px; display: none;
-    }
+    body { background: #4b505d; }
+    #slides { padding: 8px 8px 40px; }
+    .slot { position: relative; margin: 0 auto 14px; overflow: hidden; background: #fff;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); border-radius: 2px; }
+    .slide { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden;
+      font-family: Calibri, Carlito, Roboto, Arial, sans-serif; color: #000; }
+    .slide .shp { position: absolute; box-sizing: border-box; }
+    .slide .tx { position: absolute; inset: 0; display: flex; flex-direction: column; box-sizing: border-box;
+      overflow: visible; word-wrap: break-word; overflow-wrap: break-word; }
+    .slide .tx p { white-space: pre-wrap; }
+    .slide .tbl { border-collapse: collapse; table-layout: fixed; }
+    .slide .tbl td { border: 1px solid #fff; overflow: hidden; }
+    .slide .tbl td p { white-space: pre-wrap; }
+    .slide .chart { display: flex; align-items: center; justify-content: center; background: #f2f4f8;
+      border: 2px dashed #b8c0d0; color: #5b6275; font-size: 28px; text-align: center; }
+    .slot .num { position: absolute; right: 6px; bottom: 4px; font-size: 11px; color: #fff;
+      background: rgba(0, 0, 0, 0.45); padding: 1px 7px; border-radius: 9px; }
+    .ph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #f4f6fb; }
+    .spin.small { width: 26px; height: 26px; border-width: 3px; margin: 0; }
+    .slideerr { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #5b6275; background: #f4f6fb; }
+    #count { position: fixed; right: 10px; bottom: 10px; z-index: 20; background: rgba(30, 58, 138, 0.9);
+      color: #fff; font-size: 12px; padding: 5px 10px; border-radius: 12px; display: none; }
   </style>
 </head>
 <body>
-  <div id="status"><div class="spin"></div><p>Slaytlar hazırlanıyor…</p></div>
-  <div id="fast"></div>
-  <div id="wrap"><div id="result"></div></div>
+  <div id="status"><div class="spin"></div><p>Sunum açılıyor…</p></div>
+  <div id="slides"></div>
   <div id="count"></div>
+  <script src="lib/jszip.min.js"></script>
   <script src="common.js"></script>
-  <script>
-    var shown = false;
-
-    function showNow(n) {
-      if (shown) return;
-      shown = true;
-      hideStatus();
-      if (n) {
-        var c = document.getElementById('count');
-        c.textContent = n + ' slayt';
-        c.style.display = 'block';
-      }
-    }
-
-    // ---------- 1) Hızlı görüntüleyici: pptx-preview ----------
-    function fastViewer(buf) {
-      var host = document.getElementById('fast');
-      var w = Math.max(280, window.innerWidth - 12);
-
-      // İlk slayt ekrana gelir gelmez bekleme ekranını kaldır
-      var mo = new MutationObserver(function () {
-        if (host.querySelector('svg, img, canvas, p, span')) { mo.disconnect(); showNow(0); }
-      });
-      mo.observe(host, { childList: true, subtree: true });
-
-      var viewer = PptxPreview.init(host, { width: w, height: Math.round(w * 9 / 16), mode: 'list' });
-      return Promise.resolve(viewer.preview(buf)).then(function () {
-        mo.disconnect();
-        if (!host.children.length) throw new Error('boş');
-        showNow(0);
-      });
-    }
-
-    // ---------- 2) Yedek görüntüleyici: PPTXjs ----------
-    function oldViewer() {
-      document.getElementById('fast').style.display = 'none';
-      document.getElementById('wrap').style.display = 'block';
-      var L = 'lib/pptxjs/js/';
-      loadScripts([
-        L + 'jquery-1.11.3.min.js', L + 'jszip.min.js', L + 'filereader.js',
-        L + 'd3.min.js', L + 'nv.d3.min.js', L + 'dingbat.js', L + 'pptxjs.js', L + 'divs2slides.js'
-      ], function () {
-        if (!window.jQuery || !jQuery.fn || !jQuery.fn.pptxToHtml) { fail('Sunum görüntüleyici yüklenemedi.'); return; }
-        var css = ['lib/pptxjs/css/pptxjs.css', 'lib/pptxjs/css/nv.d3.min.css'];
-        css.forEach(function (h) {
-          var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = h; document.head.appendChild(l);
-        });
-        try {
-          jQuery('#result').pptxToHtml({
-            pptxFileUrl: docUrl(), fileInputId: '', slideMode: false,
-            keyBoardShortCut: false, mediaProcess: true, slidesScale: ''
-          });
-        } catch (e) { fail('Sunum açılamadı.'); return; }
-        var waited = 0;
-        var iv = setInterval(function () {
-          waited += 300;
-          var n = document.querySelectorAll('#result .slide').length;
-          if (n > 0) { fitOld(); showNow(0); }
-          if ((n > 0 && waited > 3000) || waited > 90000) {
-            clearInterval(iv);
-            fitOld();
-            if (n > 0) showNow(n); else fail('Sunum açılamadı. Dosya bozuk olabilir.');
-          }
-        }, 300);
-        window.addEventListener('resize', fitOld);
-      });
-    }
-
-    function fitOld() {
-      var s = document.querySelector('#result .slide');
-      if (!s) return;
-      var z = Math.min(1, (window.innerWidth - 12) / (s.offsetWidth || 960));
-      document.getElementById('result').style.zoom = z;
-    }
-
-    // ---------- Başlat ----------
-    loadScripts(['lib/pptx-preview.js'], function () {
-      if (!window.PptxPreview || !PptxPreview.init) { oldViewer(); return; }
-      fetch(docUrl())
-        .then(function (r) { if (!r.ok) throw new Error('okunamadı'); return r.arrayBuffer(); })
-        .then(fastViewer)
-        .catch(function () {
-          if (!shown) {
-            document.getElementById('fast').innerHTML = '';
-            oldViewer();
-          }
-        });
-    });
-  </script>
+  <script src="chart.js"></script>
+  <script src="pptx.js"></script>
 </body>
 </html>
