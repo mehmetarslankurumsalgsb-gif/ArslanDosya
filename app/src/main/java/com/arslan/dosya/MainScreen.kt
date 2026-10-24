@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -60,6 +61,7 @@ fun formatDate(ms: Long): String {
 }
 
 private val Line = Color(0xFFE5E7EB)
+private val Frame = Color(0xFFC9CED8)   // belirgin çerçeve rengi
 private val LineSoft = Color(0xFFF0F1F3)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -312,7 +314,7 @@ fun MainScreen(vm: MainViewModel) {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 24.dp)
+                    contentPadding = PaddingValues(top = 6.dp, bottom = 24.dp)
                 ) {
                     when {
                         vm.loading && all.isEmpty() -> item {
@@ -402,9 +404,10 @@ fun LabeledButton(icon: ImageVector, label: String, active: Boolean, activeTint:
     ) {
         Box(
             Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant),
+                .size(46.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .border(if (active) 2.dp else 1.dp, if (active) tint else Frame, RoundedCornerShape(12.dp))
+                .background(if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background),
             contentAlignment = Alignment.Center
         ) {
             Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(21.dp))
@@ -440,6 +443,7 @@ fun SearchField(value: String, onChange: (String) -> Unit, modifier: Modifier = 
             .fillMaxWidth()
             .height(48.dp)
             .clip(RoundedCornerShape(12.dp))
+            .border(1.dp, Frame, RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(start = 14.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -535,14 +539,18 @@ fun FileRow(
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
 
+    val shape = RoundedCornerShape(14.dp)
     Column(
         modifier
             .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+            .clip(shape)
+            .border(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Frame, shape)
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Row(
-            Modifier.padding(start = 16.dp, top = 12.dp, bottom = if (!selectionMode && shareApps.isNotEmpty()) 2.dp else 12.dp, end = 0.dp),
+            Modifier.padding(start = 12.dp, top = 12.dp, bottom = if (!selectionMode && shareApps.isNotEmpty()) 4.dp else 12.dp, end = 6.dp),
             verticalAlignment = Alignment.Top
         ) {
             Box(Modifier.padding(top = 2.dp)) { KindBadge(d.kind, selected) }
@@ -586,12 +594,23 @@ fun FileRow(
                 )
             }
             if (!selectionMode) {
-                IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
-                    Icon(Icons.Filled.DeleteOutline, contentDescription = "Sil", tint = Color(0xFF9CA3AF))
+                OutlinedIconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(40.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, Color(0xFFF1B4B4))
+                ) {
+                    Icon(Icons.Filled.DeleteOutline, contentDescription = "Sil", tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
                 }
+                Spacer(Modifier.width(6.dp))
                 Box {
-                    IconButton(onClick = { menu = true }, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "Seçenekler", tint = Color(0xFF6B7280))
+                    OutlinedIconButton(
+                        onClick = { menu = true },
+                        modifier = Modifier.size(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Frame)
+                    ) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "Seçenekler", tint = Color(0xFF4B5563), modifier = Modifier.size(20.dp))
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
@@ -637,11 +656,11 @@ fun FileRow(
             }
         }
         if (!selectionMode && shareApps.isNotEmpty()) {
-            Box(Modifier.padding(start = 66.dp, end = 12.dp, bottom = 8.dp)) {
+            HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 12.dp))
+            Box(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp)) {
                 ShareLinks(shareApps, onShareTo)
             }
         }
-        HorizontalDivider(color = LineSoft, modifier = Modifier.padding(start = 72.dp))
     }
 }
 
@@ -654,10 +673,11 @@ fun ShareLinks(apps: List<Pair<ShareApp, String>>, onClick: (String) -> Unit) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(app.color.copy(alpha = 0.08f))
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(1.dp, app.color.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                    .background(app.color.copy(alpha = 0.06f))
                     .clickable { onClick(pkg) }
-                    .padding(start = 6.dp, end = 10.dp, top = 5.dp, bottom = 5.dp)
+                    .padding(start = 7.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
             ) {
                 AppIcon(app, pkg, 18.dp, app.color)
                 Spacer(Modifier.width(5.dp))

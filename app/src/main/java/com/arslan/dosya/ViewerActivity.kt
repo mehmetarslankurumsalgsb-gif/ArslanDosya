@@ -21,6 +21,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -591,18 +592,51 @@ fun PdfViewer(
         val baseWidth: Dp = maxWidth
         val baseWidthPx = constraints.maxWidth
         val hScroll = rememberScrollState()
+        var pendingX by remember { mutableStateOf<Float?>(null) }
+        // Yeni genişlik yerleşince yatay kaydırmayı uygula
+        LaunchedEffect(scale) {
+            pendingX?.let { hScroll.scrollTo(it.roundToInt().coerceIn(0, hScroll.maxValue.coerceAtLeast(0))) }
+            pendingX = null
+        }
 
         Box(
             Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    // İki parmakla yakınlaştırma
+                    // İki parmakla yakınlaştırma: parmakların ortasındaki nokta yerinde kalır
                     awaitEachGesture {
                         do {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             if (event.changes.count { it.pressed } >= 2) {
                                 val zoom = event.calculateZoom()
-                                if (zoom != 1f) scale = (scale * zoom).coerceIn(1f, 4f)
+                                if (zoom != 1f) {
+                                    val c = event.calculateCentroid(useCurrent = true)
+                                    val s0 = scale
+                                    val s1 = (s0 * zoom).coerceIn(1f, 4f)
+                                    val k = s1 / s0
+                                    if (k != 1f) {
+                                        // Yatay: aynı nokta parmakların altında kalsın
+                                        pendingX = (hScroll.value + c.x) * k - c.x
+                                        // Dikey: parmak altındaki sayfa ve o sayfadaki yer korunsun
+                                        val items = listState.layoutInfo.visibleItemsInfo
+                                        val anchor = items.firstOrNull { c.y >= it.offset && c.y < it.offset + it.size } ?: items.firstOrNull()
+                                        if (anchor != null) {
+                                            val inside = c.y - anchor.offset
+                                            val newOffset = (inside * k - c.y).roundToInt()
+                                            if (newOffset >= 0 || anchor.index == 0) {
+                                                listState.requestScrollToItem(anchor.index, newOffset.coerceAtLeast(0))
+                                            } else {
+                                                // Üstteki sayfa kısmen görünür: ondan ölç
+                                                val prev = items.firstOrNull { it.index == anchor.index - 1 }
+                                                val gap = if (prev != null) anchor.offset - (prev.offset + prev.size) else 0
+                                                val prevSize = ((prev?.size ?: anchor.size) * k).roundToInt()
+                                                val off = (prevSize + gap + newOffset).coerceAtLeast(0)
+                                                listState.requestScrollToItem(anchor.index - 1, off)
+                                            }
+                                        }
+                                        scale = s1
+                                    }
+                                }
                                 event.changes.forEach { it.consume() }
                             }
                         } while (event.changes.any { it.pressed })
