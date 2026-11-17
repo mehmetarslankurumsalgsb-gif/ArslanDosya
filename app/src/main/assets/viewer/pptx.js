@@ -4,7 +4,7 @@
 var EMU_PX = 1 / 9525;           // 96 dpi
 var PT_PX = 96 / 72;
 
-var P = { pack: null, sldW: 9144000, sldH: 6858000, slides: [], defaultText: null };
+var P = { pack: null, sldW: 9144000, sldH: 6858000, slides: [], defaultText: null, keepAll: false };
 
 // =================== Renkler ===================
 
@@ -110,7 +110,16 @@ function fillCss(spPr, ctx, phClr) {
     return imageUrl(f, ctx).then(function (url) {
       if (!url) return undefined;
       var tile = X.kid(f, 'tile');
-      return "url('" + url + "') " + (tile ? 'repeat' : 'center / 100% 100% no-repeat');
+      if (tile) return "url('" + url + "') repeat";
+      // Kırpma (srcRect) varsa görselin sadece o kısmı gösterilir
+      var src = X.kid(f, 'srcRect');
+      var l = X.num(src, 'l', 0) / 100000, t = X.num(src, 't', 0) / 100000, r = X.num(src, 'r', 0) / 100000, b = X.num(src, 'b', 0) / 100000;
+      if (l || t || r || b) {
+        var iw = 1 / Math.max(0.01, 1 - l - r), ih = 1 / Math.max(0.01, 1 - t - b);
+        var px = (l + r) ? l / (l + r) * 100 : 0, py = (t + b) ? t / (t + b) * 100 : 0;
+        return "url('" + url + "') " + px.toFixed(3) + '% ' + py.toFixed(3) + '% / ' + (iw * 100).toFixed(3) + '% ' + (ih * 100).toFixed(3) + '% no-repeat';
+      }
+      return "url('" + url + "') center / 100% 100% no-repeat";
     });
   }
   return Promise.resolve(undefined);
@@ -643,7 +652,10 @@ function shapeText(sp, ph, ctx, layoutPh, masterPh) {
 function renderPic(sp, xf, ctx) {
   var blipFill = X.kid(sp, 'blipFill');
   return imageUrl(blipFill, ctx).then(function (url) {
-    if (!url) return '';
+    if (!url) {
+      // Tarayıcının çizemediği resim (EMF/WMF vb.): sessizce kaybolmasın, yerinde bir not görünsün
+      return '<div class="shp noimg" style="' + boxStyle(xf) + '"><div>🖼️<br>Görsel gösterilemiyor</div></div>';
+    }
     var spPr = X.kid(sp, 'spPr');
     var geom = X.kid(spPr, 'prstGeom');
     var prst = geom ? geom.getAttribute('prst') : 'rect';
@@ -927,6 +939,7 @@ function start() {
 
     Find.rootSel = '#slides';
     Find.prepare = function () {
+      P.keepAll = true;   // arama başladıysa hiçbir slayt bellekten bırakılmasın
       return Promise.all(slots.map(function (s, i) { return drawInto(s, i); })).then(function () {
         // drawInto çizim sürerken boş döner; hepsi bitene kadar bekle
         return new Promise(function (ok) {
@@ -942,27 +955,48 @@ function start() {
       var badge = document.getElementById('count');
       badge.textContent = P.slides.length + ' slayt';
       badge.style.display = 'block';
+      // Kaydırma sırasında ağır işlem yapılmasın (takılmanın asıl sebebi: arka planda sürekli slayt çizmek)
+      var lastScroll = 0;
+      window.addEventListener('scroll', function () { lastScroll = Date.now(); }, { passive: true });
+      var small = slots.length <= 10;   // küçük sunumlarda hepsi bellekte kalır
+
       if ('IntersectionObserver' in window) {
-        var io = new IntersectionObserver(function (entries) {
+        // Ekrana yaklaşan slayt çizilir
+        var near = new IntersectionObserver(function (entries) {
           entries.forEach(function (en) {
-            if (en.isIntersecting) {
-              var i = slots.indexOf(en.target);
-              drawInto(en.target, i);
-              io.unobserve(en.target);
-            }
+            if (en.isIntersecting) drawInto(en.target, slots.indexOf(en.target));
           });
-        }, { rootMargin: '1200px 0px' });
-        slots.forEach(function (s, i) { if (i > 0) io.observe(s); });
+        }, { rootMargin: '1500px 0px' });
+        slots.forEach(function (s, i) { if (i > 0) near.observe(s); });
+
+        // Çok uzaklaşan slayt bellekten bırakılır (resimleri yer kaplamasın); geri gelince yeniden çizilir
+        if (!small) {
+          var far = new IntersectionObserver(function (entries) {
+            entries.forEach(function (en) {
+              if (!en.isIntersecting && !P.keepAll) unloadSlot(en.target);
+            });
+          }, { rootMargin: '6000px 0px' });
+          slots.forEach(function (s, i) { if (i > 0) far.observe(s); });
+        }
       }
-      // Arka planda sırayla hepsini hazırla
-      var k = 1;
-      (function idle() {
-        if (k >= slots.length) return;
-        var i = k++;
-        drawInto(slots[i], i).then(function () { setTimeout(idle, 30); });
-      })();
+      // Küçük sunumlarda boş zamanda geri kalanı hazırla (kaydırma bitince, tek tek)
+      if (small) {
+        var k = 1;
+        (function idle() {
+          if (k >= slots.length) return;
+          if (Date.now() - lastScroll < 600) { setTimeout(idle, 300); return; }
+          var i = k++;
+          drawInto(slots[i], i).then(function () { setTimeout(idle, 80); });
+        })();
+      }
     });
   });
+}
+
+function unloadSlot(slot) {
+  if (slot.dataset.state !== 'done') return;
+  delete slot.dataset.state;
+  slot.innerHTML = '<div class="ph"><div class="spin small"></div></div>';
 }
 
 window.addEventListener('resize', layoutSlides);

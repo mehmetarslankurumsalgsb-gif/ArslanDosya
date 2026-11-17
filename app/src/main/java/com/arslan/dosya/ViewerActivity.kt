@@ -30,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -59,6 +60,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -191,9 +194,12 @@ fun ViewerScreen(path: String, name: String, onBack: () -> Unit) {
                         } else {
                             val doc = DocFile(path, name, file.length(), file.lastModified(), FileKinds.of(name), "")
                             if (canSearch) {
-                                IconButton(onClick = { searching = true }) {
+                                IconButton(onClick = { searching = true }, modifier = Modifier.size(40.dp)) {
                                     Icon(Icons.Filled.Search, contentDescription = "Belgede ara")
                                 }
+                            }
+                            IconButton(onClick = { FileActions.download(ctx, doc) }, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Filled.Download, contentDescription = "İndir")
                             }
                             shareApps.forEach { (app, pkg) ->
                                 ShareBarButton(app, pkg) { ShareApps.send(ctx, pkg, listOf(doc)) }
@@ -477,6 +483,41 @@ class PdfHolder(file: File) {
     val error: String?
     val pageCount: Int
 
+    /** Her sayfanın gerçek yükseklik/genişlik oranı (yer tutucu ile gerçek sayfa aynı boyda olsun, kaydırma sıçramasın) */
+    private var ratios: FloatArray = FloatArray(0)
+    var ratiosReady by mutableStateOf(false)
+        private set
+
+    fun ratio(index: Int): Float = ratios.getOrNull(index)?.takeIf { it > 0f } ?: (1.414f)
+
+    suspend fun loadRatios() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val r = renderer
+            if (closed || r == null) return@withLock
+            val out = FloatArray(pageCount)
+            for (i in 0 until pageCount) {
+                try {
+                    r.openPage(i).use { p -> out[i] = p.height.toFloat() / p.width.toFloat() }
+                } catch (_: Throwable) {
+                    out[i] = 1.414f
+                }
+            }
+            ratios = out
+        }
+        ratiosReady = true
+    }
+
+    /** Çizilmiş sayfalar bellekte tutulur: geri yukarı çıkınca yeniden çizmek gerekmez */
+    class Entry(val width: Int, val bmp: Bitmap)
+
+    private val cache = object : android.util.LruCache<Int, Entry>(
+        (Runtime.getRuntime().maxMemory() / 4).coerceIn(48L * 1024 * 1024, 160L * 1024 * 1024).toInt()
+    ) {
+        override fun sizeOf(key: Int, value: Entry): Int = value.bmp.allocationByteCount
+    }
+
+    fun cached(index: Int): Entry? = cache.get(index)
+
     init {
         var err: String? = null
         var count = 0
@@ -496,16 +537,20 @@ class PdfHolder(file: File) {
     }
 
     suspend fun render(index: Int, widthPx: Int): Bitmap? = withContext(Dispatchers.IO) {
+        val w = widthPx.coerceIn(200, 2400)
+        cache.get(index)?.let { if (it.width == w) return@withContext it.bmp }
         mutex.withLock {
+            // Bu sırada kullanıcı sayfayı kaydırıp geçtiyse boşuna çizme
+            currentCoroutineContext().ensureActive()
             val r = renderer
             if (closed || r == null) return@withLock null
             try {
                 r.openPage(index).use { page ->
-                    val w = widthPx.coerceIn(200, 2400)
                     val h = (w.toFloat() * page.height / page.width).roundToInt().coerceAtLeast(1)
                     val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                     bmp.eraseColor(android.graphics.Color.WHITE)
                     page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    cache.put(index, Entry(w, bmp))
                     bmp
                 }
             } catch (_: Throwable) {
@@ -518,6 +563,7 @@ class PdfHolder(file: File) {
         CoroutineScope(Dispatchers.IO).launch {
             mutex.withLock {
                 closed = true
+                cache.evictAll()
                 try { renderer?.close() } catch (_: Exception) {}
                 try { pfd?.close() } catch (_: Exception) {}
             }
@@ -578,6 +624,12 @@ fun PdfViewer(
     val err = holder.error
     if (err != null) {
         MessageView("PDF açılamadı", err, onExternal)
+        return
+    }
+
+    LaunchedEffect(holder) { holder.loadRatios() }
+    if (!holder.ratiosReady) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
 
@@ -741,9 +793,20 @@ fun PdfSearchEngine(file: File, onReady: (WebView) -> Unit, onResults: (String) 
 
 @Composable
 fun PdfPage(holder: PdfHolder, index: Int, widthPx: Int) {
-    val bmp by produceState<Bitmap?>(null, index, widthPx) {
-        value = holder.render(index, widthPx)
+    // Önce bellekteki sayfa (eski çözünürlükte bile olsa) hemen gösterilir, yenisi hazır olunca değişir
+    var bmp by remember(index) { mutableStateOf(holder.cached(index)?.bmp) }
+    LaunchedEffect(index, widthPx) {
+        val hit = holder.cached(index)
+        if (hit != null) {
+            bmp = hit.bmp
+            if (hit.width == widthPx.coerceIn(200, 2400)) return@LaunchedEffect
+        } else {
+            // Hızlı kaydırırken üstünden geçilen sayfaları çizme
+            kotlinx.coroutines.delay(60)
+        }
+        holder.render(index, widthPx)?.let { bmp = it }
     }
+    val pageRatio = holder.ratio(index)
     Column(
         Modifier
             .fillMaxWidth()
@@ -755,10 +818,10 @@ fun PdfPage(holder: PdfHolder, index: Int, widthPx: Int) {
             Image(
                 bitmap = b.asImageBitmap(),
                 contentDescription = "Sayfa ${index + 1}",
-                contentScale = ContentScale.FillWidth,
+                contentScale = ContentScale.FillBounds,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(b.width.toFloat() / b.height.toFloat())
+                    .aspectRatio(1f / pageRatio)
                     .shadow(3.dp)
                     .background(Color.White)
             )
@@ -766,7 +829,7 @@ fun PdfPage(holder: PdfHolder, index: Int, widthPx: Int) {
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f / 1.414f)
+                    .aspectRatio(1f / pageRatio)
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {

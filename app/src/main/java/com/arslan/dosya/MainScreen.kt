@@ -550,7 +550,7 @@ fun FileRow(
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Row(
-            Modifier.padding(start = 12.dp, top = 12.dp, bottom = if (!selectionMode && shareApps.isNotEmpty()) 4.dp else 12.dp, end = 6.dp),
+            Modifier.padding(start = 12.dp, top = 12.dp, bottom = if (!selectionMode) 4.dp else 12.dp, end = 6.dp),
             verticalAlignment = Alignment.Top
         ) {
             Box(Modifier.padding(top = 2.dp)) { KindBadge(d.kind, selected) }
@@ -655,10 +655,10 @@ fun FileRow(
                 }
             }
         }
-        if (!selectionMode && shareApps.isNotEmpty()) {
+        if (!selectionMode) {
             HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 12.dp))
             Box(Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp)) {
-                ShareLinks(shareApps, onShareTo)
+                ShareLinks(shareApps, onShareTo, d, onDownload = { FileActions.download(ctx, d) })
             }
         }
     }
@@ -667,8 +667,23 @@ fun FileRow(
 /** Sade metin bağlantıları: gerçek uygulama ikonu + ad */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ShareLinks(apps: List<Pair<ShareApp, String>>, onClick: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+fun ShareLinks(apps: List<Pair<ShareApp, String>>, onClick: (String) -> Unit, d: DocFile, onDownload: () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        val navy = MaterialTheme.colorScheme.primary
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, navy.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                .background(navy.copy(alpha = 0.06f))
+                .clickable { onDownload() }
+                .padding(start = 7.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
+        ) {
+            Icon(Icons.Filled.Download, contentDescription = null, tint = navy, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("İndir", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = navy, maxLines = 1, softWrap = false)
+        }
+        AiButton(listOf(d))
         apps.forEach { (app, pkg) ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,

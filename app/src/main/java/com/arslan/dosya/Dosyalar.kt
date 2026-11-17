@@ -147,6 +147,42 @@ object FileActions {
         }
     }
 
+    /**
+     * Dosyanın bir kopyasını telefonun İndirilenler klasörüne koyar.
+     * Aynı ad varsa üzerine yazmaz: "dosya (1).pdf", "dosya (2).pdf" ...
+     */
+    fun download(ctx: Context, doc: DocFile) {
+        val app = ctx.applicationContext
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        fun say(msg: String) = main.post { android.widget.Toast.makeText(app, msg, android.widget.Toast.LENGTH_LONG).show() }
+        Thread {
+            try {
+                val src = File(doc.path)
+                val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (!dir.exists()) dir.mkdirs()
+                if (src.parentFile?.canonicalPath == dir.canonicalPath) {
+                    say("Bu dosya zaten İndirilenler klasöründe.")
+                    return@Thread
+                }
+                val base = doc.name.substringBeforeLast('.', doc.name)
+                val ext = doc.name.substringAfterLast('.', "")
+                val suffix = if (ext.isEmpty()) "" else ".$ext"
+                var target = File(dir, doc.name)
+                var n = 1
+                while (target.exists()) {
+                    target = File(dir, "$base ($n)$suffix")
+                    n++
+                }
+                src.inputStream().use { i -> target.outputStream().use { o -> i.copyTo(o) } }
+                target.setLastModified(System.currentTimeMillis())
+                MediaScannerConnection.scanFile(app, arrayOf(target.absolutePath), null, null)
+                say("İndirilenler'e kaydedildi: ${target.name}")
+            } catch (_: Exception) {
+                say("İndirilemedi. Depolama izni veya boş yer yok.")
+            }
+        }.start()
+    }
+
     fun openExternal(ctx: Context, path: String, name: String): Boolean = try {
         val intent = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri(ctx, File(path)), FileKinds.mime(name))

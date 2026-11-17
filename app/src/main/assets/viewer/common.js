@@ -167,9 +167,17 @@ Pack.prototype.blobUrl = function (path) {
 };
 
 // Büyük fotoğrafları ekran boyutuna indir (telefon belleği dolmasın)
-var MAX_IMG = 1920;
+var MAX_IMG = 1600;
+// Küçültmeler sırayla yapılır: aynı anda çok sayıda büyük resim açılıp bellek taşmasın
+var shrinkChain = Promise.resolve();
 function shrinkImage(blob, mime) {
-  if (blob.size < 350000 || !window.createImageBitmap || !/jpeg|png|webp|bmp/.test(mime)) return Promise.resolve(null);
+  var job = shrinkChain.then(function () { return shrinkOne(blob, mime); });
+  shrinkChain = job.catch(function () {});
+  return job;
+}
+function shrinkOne(blob, mime) {
+  // Dosya küçük görünse de çözünürlüğü çok büyük olabilir (ör. 4000x4000 PNG), o yüzden sadece çok küçükleri atla
+  if (blob.size < 60000 || !window.createImageBitmap || !/jpeg|png|webp|bmp/.test(mime)) return Promise.resolve(null);
   return createImageBitmap(blob).then(function (bmp) {
     var w = bmp.width, h = bmp.height;
     if (Math.max(w, h) <= MAX_IMG) { bmp.close && bmp.close(); return null; }

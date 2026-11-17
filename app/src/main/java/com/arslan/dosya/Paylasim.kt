@@ -5,8 +5,15 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -95,6 +102,89 @@ object ShareApps {
             ctx.startActivity(intent)
         } catch (_: Exception) {
             Toast.makeText(ctx, "Uygulama açılamadı.", Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
+// =================== Yapay zeka kısayolları ===================
+
+enum class AiApp(val label: String, val packages: List<String>, val url: String, val color: Color) {
+    CLAUDE("Claude", listOf("com.anthropic.claude"), "https://claude.ai", Color(0xFFD97757)),
+    CHATGPT("ChatGPT", listOf("com.openai.chatgpt"), "https://chatgpt.com", Color(0xFF10A37F)),
+    GEMINI("Gemini", listOf("com.google.android.apps.bard"), "https://gemini.google.com", Color(0xFF4285F4)),
+    DEEPSEEK("DeepSeek", listOf("com.deepseek.chat"), "https://chat.deepseek.com", Color(0xFF4D6BFE)),
+}
+
+object AiApps {
+    fun installedPackage(ctx: Context, app: AiApp): String? =
+        app.packages.firstOrNull { ctx.packageManager.getLaunchIntentForPackage(it) != null }
+
+    /**
+     * Uygulama yüklüyse dosyayı doğrudan o uygulamaya gönderir (dosya ekli açılır),
+     * yüklü değilse sitesini tarayıcıda açar.
+     */
+    fun open(ctx: Context, app: AiApp, files: List<DocFile>) {
+        val pkg = installedPackage(ctx, app)
+        try {
+            if (pkg != null) {
+                ShareApps.send(ctx, pkg, files)
+            } else {
+                Toast.makeText(ctx, "${app.label} uygulaması yüklü değil, site açılıyor.", Toast.LENGTH_SHORT).show()
+                ctx.startActivity(
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(app.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        } catch (_: Exception) {
+            Toast.makeText(ctx, "${app.label} açılamadı.", Toast.LENGTH_LONG).show()
+        }
+    }
+}
+
+/** Dosya satırındaki "Yapay Zeka" butonu: dokununca Claude / ChatGPT / Gemini / DeepSeek listesi açılır */
+@Composable
+fun AiButton(files: List<DocFile>) {
+    val ctx = LocalContext.current
+    var open by remember { mutableStateOf(false) }
+    val purple = Color(0xFF6D28D9)
+    Box {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, purple.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                .background(purple.copy(alpha = 0.06f))
+                .clickable { open = true }
+                .padding(start = 7.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)
+        ) {
+            Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = purple, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("Yapay Zeka", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = purple, maxLines = 1, softWrap = false)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            AiApp.entries.forEach { app ->
+                val installed = remember(app) { AiApps.installedPackage(ctx, app) != null }
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(app.label, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (installed) "Dosya ile aç" else "Site açılır",
+                                fontSize = 11.sp,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
+                    },
+                    leadingIcon = {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape).background(app.color),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(app.label.take(1), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
+                    },
+                    onClick = { open = false; AiApps.open(ctx, app, files) }
+                )
+            }
         }
     }
 }

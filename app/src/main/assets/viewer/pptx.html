@@ -7,8 +7,12 @@
   <style>
     body { background: #4b505d; }
     #slides { padding: 8px 8px 40px; }
+    /* Slot boyutu sabit: ekran dışındaki slaytlar çizilmez/katman oluşturmaz (kaydırma akıcı kalır) */
     .slot { position: relative; margin: 0 auto 14px; overflow: hidden; background: #fff;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); border-radius: 2px; }
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35); border-radius: 2px;
+      contain: layout paint style; content-visibility: auto; contain-intrinsic-size: auto 300px; }
+    .shp.noimg { display: flex; align-items: center; justify-content: center; text-align: center;
+      background: #f2f4f8; border: 1px dashed #b8c0d0; color: #5b6275; font-size: 14px; overflow: hidden; }
     .slide { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden;
       font-family: Calibri, Carlito, Roboto, Arial, sans-serif; color: #000; }
     .slide .shp { position: absolute; box-sizing: border-box; }
